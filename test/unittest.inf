@@ -1,0 +1,85 @@
+;
+; libwsk.inf
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = NetService
+ClassGuid   = {4d36e974-e325-11ce-bfc1-08002be10318}
+Provider    = %ManufacturerName%
+CatalogFile = %DriverName%.cat
+DriverVer   = 
+PnpLockdown = 1
+
+;*************************************
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskId%,,,""
+
+[SourceDisksFiles]
+unittest.sys = 1,,
+
+[Files.Copy.NTx86]
+libwsk.sys,unittest.sys,,0x00004020 ; COPYFLG_IN_USE_RENAME | COPYFLG_NO_VERSION_DIALOG
+
+[Files.Copy.NTamd64]
+libwsk.sys,unittest.sys,,0x00004020
+
+[Files.Del]
+libwsk.sys
+
+;*************************************
+
+[DefaultInstall.NTx86]
+CopyFiles=Files.Copy.NTx86
+
+[DefaultInstall.NTamd64]
+CopyFiles=Files.Copy.NTamd64
+
+[DefaultInstall.NTx86.Services]
+AddService = %ServiceName%,%ServicInstFlags%, ServiceInstall
+
+[DefaultInstall.NTamd64.Services]
+AddService = %ServiceName%,%ServicInstFlags%, ServiceInstall
+
+[DefaultUninstall.NTx86]
+LegacyUninstall=1
+DelFiles   = Files.Del
+
+[DefaultUninstall.NTamd64]
+LegacyUninstall=1
+DelFiles   = Files.Del
+
+[DefaultUninstall.NTx86.Services]
+DelService = %ServiceName%,0x200
+
+[DefaultUninstall.NTamd64.Services]
+DelService = %ServiceName%,0x200
+
+;*************************************
+
+[ServiceInstall]
+DisplayName    = %ServiceName%
+Description    = %ServiceDesc%
+ServiceBinary  = %12%\%ServiceName%.sys
+ServiceType    = 1                  ; SERVICE_KERNEL_DRIVER
+StartType      = 3                  ; 0 = SERVICE_BOOT_START
+                                    ; 1 = SERVICE_SYSTEM_START
+                                    ; 2 = SERVICE_AUTO_START
+                                    ; 3 = SERVICE_DEMAND_START
+                                    ; 4 = SERVICE_DISABLED
+ErrorControl   = 1                  ; SERVICE_ERROR_NORMAL
+
+;*************************************
+
+[Strings]
+ServicInstFlags         = 0x00000000
+
+ManufacturerName        = "MiroKaku"
+DriverName              = "unittest"
+ServiceDesc             = "A Winsock-Kernel library."
+ServiceName             = "libwsk"
+DiskId                  = "libwsk Device Installation Disk"
