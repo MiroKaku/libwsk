@@ -1,5 +1,6 @@
 #include <ntddk.h>
 #include <wdm.h>
+#include "src\libwsk.h"
 
 
 EXTERN_C_START
@@ -19,6 +20,12 @@ NTSTATUS DriverEntry(_In_ DRIVER_OBJECT* DriverObject, _In_ PUNICODE_STRING Regi
     {
         DriverObject->DriverUnload = DriverUnload;
 
+        WSKDATA WSKData{};
+        Result = WSKStartup(MAKE_WSK_VERSION(1, 0), &WSKData);
+        if (!NT_SUCCESS(Result))
+        {
+            break;
+        }
 
     } while (false);
 
@@ -28,4 +35,6 @@ NTSTATUS DriverEntry(_In_ DRIVER_OBJECT* DriverObject, _In_ PUNICODE_STRING Regi
 VOID DriverUnload(_In_ DRIVER_OBJECT* DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);
+
+    WSKCleanup();
 }
