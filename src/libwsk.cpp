@@ -82,7 +82,7 @@ static WSK_CONTEXT_IRP* WSKAllocContextIRP(
 
     KeInitializeEvent(&WSKContext->Event, SynchronizationEvent, FALSE);
 
-    IoSetCompletionRoutine(WSKContext->Irp, WSKCompletionRoutine, Context, TRUE, TRUE, TRUE);
+    IoSetCompletionRoutine(WSKContext->Irp, WSKCompletionRoutine, WSKContext, TRUE, TRUE, TRUE);
 
     return WSKContext;
 }
@@ -103,11 +103,13 @@ static VOID WSKFreeContextIRP(
 }
 
 static NTSTATUS WSKCompletionRoutine(
-    _In_ PDEVICE_OBJECT /*DeviceObject*/,
+    _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp,
     _In_ PVOID Context
 )
 {
+    UNREFERENCED_PARAMETER(DeviceObject);
+
     auto WSKContext = static_cast<WSK_CONTEXT_IRP*>(Context);
 
     if (WSKContext->CompletionRoutine)
@@ -190,8 +192,8 @@ VOID WSKCleanup()
 }
 
 NTSTATUS WSKGetAddrInfo(
-    _In_opt_ const wchar_t* NodeName,
-    _In_opt_ const wchar_t* ServiceName,
+    _In_opt_ LPCWSTR NodeName,
+    _In_opt_ LPCWSTR ServiceName,
     _In_     UINT32 Namespace,
     _In_opt_ GUID* Provider,
     _In_opt_ PADDRINFOEXW Hints,
@@ -233,7 +235,7 @@ NTSTATUS WSKGetAddrInfo(
             Namespace,
             Provider,
             Hints,
-            reinterpret_cast<PADDRINFOEXW*>(&WSKContext->Context), // 
+            reinterpret_cast<PADDRINFOEXW*>(&WSKContext->Context), // This Context is query result.
             nullptr,
             nullptr,
             WSKContext->Irp);
@@ -272,4 +274,109 @@ VOID WSKFreeAddrInfo(
             WSKNPIProvider.Client,
             Data);
     }
+}
+
+NTSTATUS WSKAddressToString(
+    _In_reads_bytes_(AddressLength) SOCKADDR_INET* Address,
+    _In_     UINT32  AddressLength,
+    _Out_writes_to_(*AddressStringLength, *AddressStringLength) LPWSTR AddressString,
+    _Inout_  UINT32* AddressStringLength
+)
+{
+    NTSTATUS Status = STATUS_INVALID_PARAMETER;
+
+    do
+    {
+        if (Address == nullptr || AddressLength < sizeof ADDRESS_FAMILY)
+        {
+            break;
+        }
+
+        if (Address->si_family == AF_INET)
+        {
+            if (AddressLength < sizeof Address->Ipv4)
+            {
+                break;
+            }
+
+            Status = RtlIpv4AddressToStringEx(&Address->Ipv4.sin_addr, Address->Ipv4.sin_port,
+                AddressString, reinterpret_cast<ULONG*>(AddressStringLength));
+
+            break;
+        }
+
+        if (Address->si_family == AF_INET6)
+        {
+            if (AddressLength < sizeof Address->Ipv6)
+            {
+                break;
+            }
+
+            Status = RtlIpv6AddressToStringEx(&Address->Ipv6.sin6_addr, Address->Ipv6.sin6_scope_id,
+                Address->Ipv6.sin6_port, AddressString, reinterpret_cast<ULONG*>(AddressStringLength));
+
+            break;
+        }
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKStringToAddress(
+    _In_ PCWSTR AddressString,
+    _Inout_ SOCKADDR_INET* Address,
+    _Inout_ UINT32* AddressLength
+)
+{
+    NTSTATUS Status = STATUS_INVALID_PARAMETER;
+
+    do
+    {
+        if (Address == nullptr || AddressLength == nullptr || *AddressLength < sizeof ADDRESS_FAMILY)
+        {
+            break;
+        }
+
+        if (Address->si_family == AF_INET)
+        {
+            if (*AddressLength < sizeof Address->Ipv4)
+            {
+                break;
+            }
+
+            Status = RtlIpv4StringToAddressEx(AddressString, TRUE,
+                &Address->Ipv4.sin_addr, &Address->Ipv4.sin_port);
+            if (!NT_SUCCESS(Status))
+            {
+                *AddressLength = 0u;
+                break;
+            }
+
+            *AddressLength = sizeof Address->Ipv4;
+            break;
+        }
+
+        if (Address->si_family == AF_INET6)
+        {
+            if (*AddressLength < sizeof Address->Ipv6)
+            {
+                break;
+            }
+
+            Status = RtlIpv6StringToAddressEx(AddressString, &Address->Ipv6.sin6_addr,
+                &Address->Ipv6.sin6_scope_id, &Address->Ipv6.sin6_port);
+            if (!NT_SUCCESS(Status))
+            {
+                *AddressLength = 0u;
+                break;
+            }
+
+            *AddressLength = sizeof Address->Ipv6;
+            break;
+        }
+
+    } while (false);
+
+    return Status;
 }

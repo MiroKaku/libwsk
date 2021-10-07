@@ -22,8 +22,8 @@ using LPLOOKUPSERVICE_COMPLETION_ROUTINE = VOID(NTAPI*)(
     );
 
 NTSTATUS WSKGetAddrInfo(
-    _In_opt_ const wchar_t* NodeName,
-    _In_opt_ const wchar_t* ServiceName,
+    _In_opt_ LPCWSTR NodeName,
+    _In_opt_ LPCWSTR ServiceName,
     _In_     UINT32 Namespace,
     _In_opt_ GUID* Provider,
     _In_opt_ PADDRINFOEXW Hints,
@@ -34,4 +34,17 @@ NTSTATUS WSKGetAddrInfo(
 
 VOID WSKFreeAddrInfo(
     _In_ PADDRINFOEXW Data
+);
+
+NTSTATUS WSKAddressToString(
+    _In_reads_bytes_(AddressLength) SOCKADDR_INET* Address,
+    _In_    UINT32  AddressLength,
+    _Out_writes_to_(*AddressStringLength, *AddressStringLength) LPWSTR AddressString,
+    _Inout_ UINT32* AddressStringLength
+);
+
+NTSTATUS WSKStringToAddress(
+    _In_ PCWSTR AddressString,
+    _Inout_ SOCKADDR_INET* Address, // must init Address->si_family
+    _Inout_ UINT32* AddressLength
 );
