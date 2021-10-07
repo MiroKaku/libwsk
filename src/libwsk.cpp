@@ -209,7 +209,7 @@ NTSTATUS WSKGetAddrInfo(
     {
         *Result = nullptr;
 
-        if (TimeoutMilliseconds && CompletionRoutine)
+        if (TimeoutMilliseconds != WSK_NO_WAIT && CompletionRoutine != nullptr)
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
