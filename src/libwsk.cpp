@@ -22,6 +22,14 @@ struct WSK_CONTEXT_IRP
     PVOID   CompletionRoutine; // WSK_COMPLETION_ROUTINE
 };
 
+struct SOCKET_OBJECT
+{
+    PWSK_SOCKET Socket;
+    USHORT      SocketType;
+    PVOID       Context;
+};
+using PSOCKET_OBJECT = SOCKET_OBJECT*;
+
 //////////////////////////////////////////////////////////////////////////
 // Global  Data
 
@@ -37,7 +45,7 @@ WSK_PROVIDER_NPI WSKNPIProvider;
 //////////////////////////////////////////////////////////////////////////
 // Private Function
 
-static PLARGE_INTEGER WSKTimeoutToLargeInteger(
+static PLARGE_INTEGER WSKAPI WSKTimeoutToLargeInteger(
     _In_ UINT32 Milliseconds,
     _In_ PLARGE_INTEGER Timeout
 )
@@ -52,13 +60,13 @@ static PLARGE_INTEGER WSKTimeoutToLargeInteger(
     return Timeout;
 }
 
-static NTSTATUS WSKCompletionRoutine(
+static NTSTATUS WSKAPI WSKCompletionRoutine(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp,
     _In_ PVOID Context
 );
 
-static WSK_CONTEXT_IRP* WSKAllocContextIRP(
+static WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
     _In_opt_ PVOID CompletionRoutine,
     _In_opt_ PVOID Context
 )
@@ -87,7 +95,7 @@ static WSK_CONTEXT_IRP* WSKAllocContextIRP(
     return WSKContext;
 }
 
-static VOID WSKFreeContextIRP(
+static VOID WSKAPI WSKFreeContextIRP(
     _In_ WSK_CONTEXT_IRP* WSKContext
 )
 {
@@ -102,7 +110,7 @@ static VOID WSKFreeContextIRP(
     }
 }
 
-static NTSTATUS WSKCompletionRoutine(
+static NTSTATUS WSKAPI WSKCompletionRoutine(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp,
     _In_ PVOID Context
@@ -138,7 +146,7 @@ static NTSTATUS WSKCompletionRoutine(
 //////////////////////////////////////////////////////////////////////////
 // Public  Function
 
-NTSTATUS WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
+NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
 {
     NTSTATUS Status = STATUS_SUCCESS;
 
@@ -180,7 +188,7 @@ NTSTATUS WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
     return Status;
 }
 
-VOID WSKCleanup()
+VOID WSKAPI WSKCleanup()
 {
     if (WSKNPIProvider.Client)
     {
@@ -191,14 +199,14 @@ VOID WSKCleanup()
     WskDeregister(&WSKRegistration);
 }
 
-NTSTATUS WSKGetAddrInfo(
-    _In_opt_ LPCWSTR NodeName,
-    _In_opt_ LPCWSTR ServiceName,
-    _In_     UINT32 Namespace,
-    _In_opt_ GUID* Provider,
-    _In_opt_ PADDRINFOEXW Hints,
-    _Outptr_ PADDRINFOEXW* Result,
-    _In_opt_ UINT32 TimeoutMilliseconds,
+NTSTATUS WSKAPI WSKGetAddrInfo(
+    _In_opt_ LPCWSTR        NodeName,
+    _In_opt_ LPCWSTR        ServiceName,
+    _In_     UINT32         Namespace,
+    _In_opt_ GUID*          Provider,
+    _In_opt_ PADDRINFOEXW   Hints,
+    _Outptr_ PADDRINFOEXW*  Result,
+    _In_opt_ UINT32         TimeoutMilliseconds,
     _In_opt_ LPLOOKUPSERVICE_COMPLETION_ROUTINE CompletionRoutine
 )
 {
@@ -264,7 +272,7 @@ NTSTATUS WSKGetAddrInfo(
     return Status;
 }
 
-VOID WSKFreeAddrInfo(
+VOID WSKAPI WSKFreeAddrInfo(
     _In_ PADDRINFOEXW Data
 )
 {
@@ -276,7 +284,7 @@ VOID WSKFreeAddrInfo(
     }
 }
 
-NTSTATUS WSKAddressToString(
+NTSTATUS WSKAPI WSKAddressToString(
     _In_reads_bytes_(AddressLength) SOCKADDR_INET* Address,
     _In_     UINT32  AddressLength,
     _Out_writes_to_(*AddressStringLength, *AddressStringLength) LPWSTR AddressString,
@@ -323,10 +331,10 @@ NTSTATUS WSKAddressToString(
     return Status;
 }
 
-NTSTATUS WSKStringToAddress(
-    _In_ PCWSTR AddressString,
-    _Inout_ SOCKADDR_INET* Address,
-    _Inout_ UINT32* AddressLength
+NTSTATUS WSKAPI WSKStringToAddress(
+    _In_    PCWSTR          AddressString,
+    _Inout_ SOCKADDR_INET*  Address,
+    _Inout_ UINT32*         AddressLength
 )
 {
     NTSTATUS Status = STATUS_INVALID_PARAMETER;
@@ -375,6 +383,128 @@ NTSTATUS WSKStringToAddress(
             *AddressLength = sizeof Address->Ipv6;
             break;
         }
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKSocket(
+    _Out_ SOCKET*           Socket,
+    _In_  ADDRESS_FAMILY    AddressFamily,
+    _In_  USHORT            SocketType,
+    _In_  ULONG             Protocol,
+    _In_opt_ PSECURITY_DESCRIPTOR SecurityDescriptor
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext{};
+
+    do 
+    {
+        *Socket = WSK_INVALID_SOCKET;
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        ULONG Flags = 0;
+
+        switch (SocketType)
+        {
+        case SOCK_STREAM:
+            Flags = WSK_FLAG_STREAM_SOCKET;
+            break;
+        case SOCK_DGRAM:
+            Flags = WSK_FLAG_DATAGRAM_SOCKET;
+            break;
+        case SOCK_RAW:
+            Flags = WSK_FLAG_DATAGRAM_SOCKET;
+            break;
+        }
+
+        Status = WSKNPIProvider.Dispatch->WskSocket(
+            WSKNPIProvider.Client,
+            AddressFamily,
+            SocketType,
+            Protocol,
+            Flags,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            SecurityDescriptor,
+            WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        if (NT_SUCCESS(Status))
+        {
+            *Socket = static_cast<PWSK_SOCKET>(reinterpret_cast<void*>(
+                WSKContext->Irp->IoStatus.Information));
+        }
+
+        WSKFreeContextIRP(WSKContext);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKCloseSocket(
+    _In_ SOCKET Socket
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext{};
+
+    do
+    {
+        if (Socket == WSK_INVALID_SOCKET)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        auto Dispatch = static_cast<const WSK_PROVIDER_BASIC_DISPATCH*>(Socket->Dispatch);
+
+        Status = Dispatch->WskCloseSocket(
+            Socket,
+            WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        WSKFreeContextIRP(WSKContext);
 
     } while (false);
 
