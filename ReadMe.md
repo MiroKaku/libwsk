@@ -2,7 +2,7 @@
 
 [![Actions Status](https://github.com/MiroKaku/libwsk/workflows/CodeQL/badge.svg)](https://github.com/MiroKaku/libwsk/actions)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/MiroKaku/libwsk/blob/master/LICENSE)
-![Windows](https://img.shields.io/badge/Windows-10+-orange.svg)
+![Windows](https://img.shields.io/badge/Windows-10%20RS2+-orange.svg)
 ![Visual Studio](https://img.shields.io/badge/Visual%20Studio-2019-purple.svg)
 
 * [简体中文](ReadMe.zh-cn.md)
