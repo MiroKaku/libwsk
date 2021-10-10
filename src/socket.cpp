@@ -95,6 +95,8 @@ BOOLEAN WSKAPI WSKSocketsAVLTableInsert(
     _In_  USHORT        SocketType
 )
 {
+    PAGED_CODE();
+
     static volatile short _FD = 4;
 
     SOCKET_OBJECT SockObject{};
@@ -126,6 +128,8 @@ BOOLEAN WSKAPI WSKSocketsAVLTableDelete(
     _In_  SOCKET SocketFD
 )
 {
+    PAGED_CODE();
+
     SOCKET_OBJECT SockObject{};
     SockObject.FileDescriptor = static_cast<USHORT>(SocketFD);
 
@@ -146,6 +150,8 @@ BOOLEAN WSKAPI WSKSocketsAVLTableFind(
     _Out_ USHORT*       SocketType
 )
 {
+    PAGED_CODE();
+
     *Socket     = nullptr;
     *SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
 
@@ -176,6 +182,8 @@ BOOLEAN WSKAPI WSKSocketsAVLTableUpdate(
     _In_opt_ USHORT     SocketType
 )
 {
+    PAGED_CODE();
+
     SOCKET_OBJECT SockObject{};
     SockObject.FileDescriptor = static_cast<USHORT>(SocketFD);
 
@@ -205,6 +213,8 @@ BOOLEAN WSKAPI WSKSocketsAVLTableUpdate(
 
 SIZE_T WSKAPI WSKSocketsAVLTableSize()
 {
+    PAGED_CODE();
+
     SIZE_T Size = 0u;
 
     ExAcquireFastMutex(&WSKSocketsAVLTableMutex);

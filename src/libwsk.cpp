@@ -24,6 +24,8 @@ struct WSK_CONTEXT_IRP
 //////////////////////////////////////////////////////////////////////////
 // Global  Data
 
+static volatile long _Initialized = false;
+
 WSK_CLIENT_DISPATCH WSKClientDispatch = {
     MAKE_WSK_VERSION(1, 0), // This default uses WSK version 1.0
     0,                      // Reserved
@@ -150,6 +152,12 @@ NTSTATUS WSKAPI WSKSocketUnsafe(
     {
         *Socket = nullptr;
 
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
         WSKContext = WSKAllocContextIRP(nullptr, nullptr);
         if (WSKContext == nullptr)
         {
@@ -204,6 +212,12 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
 
     do
     {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
         if (Socket == nullptr)
         {
             Status = STATUS_INVALID_PARAMETER;
@@ -244,8 +258,6 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
 
 //////////////////////////////////////////////////////////////////////////
 // Public  Function
-
-static volatile long _Initialized = false;
 
 NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
 {
@@ -339,6 +351,12 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
     {
         *Result = nullptr;
 
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
         if (TimeoutMilliseconds != WSK_NO_WAIT && CompletionRoutine != nullptr)
         {
             Status = STATUS_INVALID_PARAMETER;
@@ -352,8 +370,8 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
             break;
         }
 
-        UNICODE_STRING NodeNameS;
-        UNICODE_STRING ServiceNameS;
+        UNICODE_STRING NodeNameS{};
+        UNICODE_STRING ServiceNameS{};
 
         RtlInitUnicodeString(&NodeNameS, NodeName);
         RtlInitUnicodeString(&ServiceNameS, ServiceName);
@@ -365,7 +383,7 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
             Namespace,
             Provider,
             Hints,
-            reinterpret_cast<PADDRINFOEXW*>(&WSKContext->Context), // This Context is query result.
+            reinterpret_cast<PADDRINFOEXW*>(&WSKContext->Context), // The Context is query result.
             nullptr,
             nullptr,
             WSKContext->Irp);
@@ -398,6 +416,11 @@ VOID WSKAPI WSKFreeAddrInfo(
     _In_ PADDRINFOEXW Data
 )
 {
+    if (!InterlockedCompareExchange(&_Initialized, true, true))
+    {
+        return;
+    }
+
     if (Data)
     {
         WSKNPIProvider.Dispatch->WskFreeAddressInfo(
@@ -406,8 +429,78 @@ VOID WSKAPI WSKFreeAddrInfo(
     }
 }
 
+NTSTATUS WSKAPI WSKGetNameInfo(
+    _In_ SOCKADDR*  Address,
+    _In_ ULONG      AddressLength,
+    _Out_writes_opt_(NodeNameSize)      LPWSTR  NodeName,
+    _In_ ULONG      NodeNameSize,
+    _Out_writes_opt_(ServiceNameSize)   LPWSTR  ServiceName,
+    _In_ ULONG      ServiceNameSize,
+    _In_ ULONG      Flags
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext{};
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (NodeName == nullptr && ServiceName == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        UNICODE_STRING NodeNameS{};
+        UNICODE_STRING ServiceNameS{};
+
+        RtlInitEmptyUnicodeString(&NodeNameS, NodeName, static_cast<USHORT>(NodeNameSize));
+        RtlInitEmptyUnicodeString(&ServiceNameS, ServiceName, static_cast<USHORT>(ServiceNameSize));
+
+        Status = WSKNPIProvider.Dispatch->WskGetNameInfo(
+            WSKNPIProvider.Client,
+            Address,
+            AddressLength,
+            NodeName ? &NodeNameS : nullptr,
+            ServiceName ? &ServiceNameS : nullptr,
+            Flags,
+            nullptr,
+            nullptr,
+            WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        WSKFreeContextIRP(WSKContext);
+
+    } while (false);
+
+    return Status;
+}
+
 NTSTATUS WSKAPI WSKAddressToString(
-    _In_reads_bytes_(AddressLength) SOCKADDR_INET* Address,
+    _In_reads_bytes_(AddressLength) SOCKADDR* SockAddress,
     _In_     UINT32  AddressLength,
     _Out_writes_to_(*AddressStringLength, *AddressStringLength) LPWSTR AddressString,
     _Inout_  UINT32* AddressStringLength
@@ -417,6 +510,8 @@ NTSTATUS WSKAPI WSKAddressToString(
 
     do
     {
+        auto Address = reinterpret_cast<SOCKADDR_INET*>(SockAddress);
+
         if (Address == nullptr || AddressLength < sizeof ADDRESS_FAMILY)
         {
             break;
@@ -454,15 +549,17 @@ NTSTATUS WSKAPI WSKAddressToString(
 }
 
 NTSTATUS WSKAPI WSKStringToAddress(
-    _In_    PCWSTR          AddressString,
-    _Inout_ SOCKADDR_INET*  Address,
-    _Inout_ UINT32*         AddressLength
+    _In_    PCWSTR      AddressString,
+    _Inout_ SOCKADDR*   SockAddress,
+    _Inout_ UINT32*     AddressLength
 )
 {
     NTSTATUS Status = STATUS_INVALID_PARAMETER;
 
     do
     {
+        auto Address = reinterpret_cast<SOCKADDR_INET*>(SockAddress);
+
         if (Address == nullptr || AddressLength == nullptr || *AddressLength < sizeof ADDRESS_FAMILY)
         {
             break;
@@ -525,6 +622,12 @@ NTSTATUS WSKAPI WSKSocket(
     {
         *Socket = WSK_INVALID_SOCKET;
 
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
         ULONG WSKSocketType = WSK_FLAG_BASIC_SOCKET;
 
         switch (SocketType)
@@ -567,6 +670,12 @@ NTSTATUS WSKAPI WSKCloseSocket(
 
     do
     {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
         if (Socket == WSK_INVALID_SOCKET)
         {
             Status = STATUS_INVALID_PARAMETER;
