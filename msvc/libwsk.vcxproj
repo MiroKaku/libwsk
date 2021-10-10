@@ -36,9 +36,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\libwsk.cpp" />
+    <ClCompile Include="..\src\socket.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\libwsk.h" />
+    <ClInclude Include="..\src\socket.h" />
     <ClInclude Include="..\src\universal.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

@@ -3,7 +3,13 @@
 
 using SOCKET = UINT_PTR;
 
-constexpr auto WSK_INVALID_SOCKET = static_cast<SOCKET>(~0);
+#ifndef WSK_INVALID_SOCKET
+#  define WSK_INVALID_SOCKET static_cast<SOCKET>(~0)
+#endif
+
+#ifndef WSK_FLAG_INVALID_SOCKET
+#    define WSK_FLAG_INVALID_SOCKET 0xffffffff
+#endif
 
 struct WSKDATA
 {

@@ -10,12 +10,18 @@
     <ClCompile Include="..\src\libwsk.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\socket.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\libwsk.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\universal.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\socket.h">
       <Filter>src</Filter>
     </ClInclude>
   </ItemGroup>

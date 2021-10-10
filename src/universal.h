@@ -10,3 +10,5 @@
 #include <wdm.h>
 #include <wsk.h>
 
+// Global
+static constexpr auto WSK_POOL_TAG = ' KSW'; // 'WSK '
