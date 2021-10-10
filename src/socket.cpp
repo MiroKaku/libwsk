@@ -85,6 +85,8 @@ VOID WSKAPI WSKSocketsAVLTableCleanup()
 
         Socket = static_cast<SOCKET_OBJECT*>(RtlGetElementGenericTableAvl(&WSKSocketsAVLTable, 0));
     }
+
+    ExDeleteNPagedLookasideList(&WSKSocketsLookasidePool);
 }
 
 BOOLEAN WSKAPI WSKSocketsAVLTableInsert(
@@ -98,7 +100,7 @@ BOOLEAN WSKAPI WSKSocketsAVLTableInsert(
     SOCKET_OBJECT SockObject{};
     SockObject.Socket         = Socket;
     SockObject.SocketType     = SocketType;
-    SockObject.FileDescriptor = InterlockedAnd16(&_FD, 4);
+    SockObject.FileDescriptor = InterlockedCompareExchange16(&_FD, _FD + 4, _FD);
 
     BOOLEAN Inserted = FALSE;
 

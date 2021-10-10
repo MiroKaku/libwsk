@@ -245,7 +245,7 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
 //////////////////////////////////////////////////////////////////////////
 // Public  Function
 
-static volatile bool WSKInitialized = false;
+static volatile long _Initialized = false;
 
 NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
 {
@@ -255,7 +255,7 @@ NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
     {
         *WSKData = {};
 
-        if (WSKInitialized == true)
+        if (InterlockedCompareExchange(&_Initialized, true, true))
         {
             WSK_PROVIDER_CHARACTERISTICS Caps;
             Status = WskQueryProviderCharacteristics(&WSKRegistration, &Caps);
@@ -270,11 +270,13 @@ NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
             break;
         }
 
-        WSKClientDispatch.Version = Version;
+        WSKSocketsAVLTableInitialize();
 
         WSK_CLIENT_NPI NPIClient{};
         NPIClient.ClientContext = nullptr;
         NPIClient.Dispatch = &WSKClientDispatch;
+
+        WSKClientDispatch.Version = Version;
 
         Status = WskRegister(&NPIClient, &WSKRegistration);
         if (!NT_SUCCESS(Status))
@@ -299,7 +301,7 @@ NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
             break;
         }
 
-        WSKInitialized = true;
+        InterlockedCompareExchange(&_Initialized, true, false);
 
     } while (false);
 
@@ -308,15 +310,15 @@ NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
 
 VOID WSKAPI WSKCleanup()
 {
-    if (WSKNPIProvider.Client)
+    if (InterlockedCompareExchange(&_Initialized, false, true))
     {
-        WSKNPIProvider = {};
+        WSKSocketsAVLTableCleanup();
+
         WskReleaseProviderNPI(&WSKRegistration);
+        WskDeregister(&WSKRegistration);
+
+        WSKNPIProvider = {};
     }
-
-    WskDeregister(&WSKRegistration);
-
-    WSKInitialized = false;
 }
 
 NTSTATUS WSKAPI WSKGetAddrInfo(

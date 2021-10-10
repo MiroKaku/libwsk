@@ -1,6 +1,7 @@
 #include <ntddk.h>
 #include <wdm.h>
 #include "src\libwsk.h"
+#include "src\socket.h"
 
 EXTERN_C_START
 DRIVER_INITIALIZE   DriverEntry;
