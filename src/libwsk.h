@@ -107,3 +107,17 @@ NTSTATUS WSKAPI WSKGetSocketOpt(
     _Out_writes_bytes_(*OutputSize) PVOID OutputBuffer,
     _Inout_ SIZE_T*     OutputSize
 );
+
+NTSTATUS WSKAPI WSKBind(
+    _In_ SOCKET         Socket,
+    _In_ PSOCKADDR      LocalAddress,
+    _In_ SIZE_T         AddressLength
+);
+
+NTSTATUS WSKAPI WSKAccpet(
+    _In_ SOCKET         Socket,
+    _In_ SIZE_T         LocalAddressLength,
+    _Out_opt_ PSOCKADDR LocalAddress,
+    _In_ SIZE_T         RemoteAddressLength,
+    _Out_opt_ PSOCKADDR RemoteAddress
+);

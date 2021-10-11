@@ -141,7 +141,7 @@ NTSTATUS WSKAPI WSKSocketUnsafe(
     _In_  ADDRESS_FAMILY    AddressFamily,
     _In_  USHORT            SocketType,
     _In_  ULONG             Protocol,
-    _In_opt_ ULONG          Flags,
+    _In_  ULONG             Flags,
     _In_opt_ PSECURITY_DESCRIPTOR SecurityDescriptor
 )
 {
@@ -304,6 +304,172 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
             OutputSize,
             OutputBuffer,
             OutputSizeReturned,
+            WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        WSKFreeContextIRP(WSKContext);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKBindUnsafe(
+    _In_ PWSK_SOCKET Socket,
+    _In_ ULONG       WskSocketType,
+    _In_ PSOCKADDR   LocalAddress,
+    _In_ SIZE_T      AddressLength
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext{};
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == nullptr || LocalAddress == nullptr || (AddressLength < sizeof SOCKADDR))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PFN_WSK_BIND WSKBindRoutine = nullptr;
+
+        switch (WskSocketType)
+        {
+        case WSK_FLAG_LISTEN_SOCKET:
+            WSKBindRoutine = static_cast<const WSK_PROVIDER_LISTEN_DISPATCH*>(Socket->Dispatch)->WskBind;
+            break;
+        case WSK_FLAG_DATAGRAM_SOCKET:
+            WSKBindRoutine = static_cast<const WSK_PROVIDER_DATAGRAM_DISPATCH*>(Socket->Dispatch)->WskBind;
+            break;
+        case WSK_FLAG_CONNECTION_SOCKET:
+            WSKBindRoutine = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskBind;
+            break;
+        case WSK_FLAG_STREAM_SOCKET:
+            WSKBindRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskBind;
+            break;
+        }
+
+        if (WSKBindRoutine == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        Status = WSKBindRoutine(
+            Socket,
+            LocalAddress,
+            0,
+            WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        WSKFreeContextIRP(WSKContext);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKAcceptUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType,
+    _In_ SIZE_T         LocalAddressLength,
+    _Out_opt_ PSOCKADDR LocalAddress,
+    _In_ SIZE_T         RemoteAddressLength,
+    _Out_opt_ PSOCKADDR RemoteAddress
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext{};
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if ((LocalAddress  && (LocalAddressLength  < sizeof SOCKADDR)) ||
+            (RemoteAddress && (RemoteAddressLength < sizeof SOCKADDR)))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PFN_WSK_ACCEPT WSKAcceptRoutine = nullptr;
+
+        switch (WskSocketType)
+        {
+        case WSK_FLAG_LISTEN_SOCKET:
+            WSKAcceptRoutine = static_cast<const WSK_PROVIDER_LISTEN_DISPATCH*>(Socket->Dispatch)->WskAccept;
+            break;
+        case WSK_FLAG_STREAM_SOCKET:
+            WSKAcceptRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskAccept;
+            break;
+        }
+
+        if (WSKAcceptRoutine == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        Status = WSKAcceptRoutine(
+            Socket,
+            0,
+            nullptr,
+            nullptr,
+            LocalAddress,
+            RemoteAddress,
             WSKContext->Irp);
 
         if (Status == STATUS_PENDING)
@@ -827,12 +993,6 @@ NTSTATUS WSKAPI WSKIoctl(
 
         Status = WSKControlSocketUnsafe(Socket_, WskIoctl, ControlCode, 0,
             InputSize, InputBuffer, OutputSize, OutputBuffer, OutputSizeReturned);
-        if (!NT_SUCCESS(Status))
-        {
-            break;
-        }
-
-        WSKSocketsAVLTableDelete(Socket);
 
     } while (false);
 
@@ -880,12 +1040,6 @@ NTSTATUS WSKAPI WSKSetSocketOpt(
 
         Status = WSKControlSocketUnsafe(Socket_, WskSetOption, OptionName, OptionLevel,
             InputSize, InputBuffer, 0, nullptr, nullptr);
-        if (!NT_SUCCESS(Status))
-        {
-            break;
-        }
-
-        WSKSocketsAVLTableDelete(Socket);
 
     } while (false);
 
@@ -933,12 +1087,97 @@ NTSTATUS WSKAPI WSKGetSocketOpt(
 
         Status = WSKControlSocketUnsafe(Socket_, WskGetOption, OptionName, OptionLevel,
             0, nullptr, *OutputSize, OutputBuffer, OutputSize);
-        if (!NT_SUCCESS(Status))
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKBind(
+    _In_ SOCKET         Socket,
+    _In_ PSOCKADDR      LocalAddress,
+    _In_ SIZE_T         AddressLength
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
         {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
             break;
         }
 
-        WSKSocketsAVLTableDelete(Socket);
+        if (Socket == WSK_INVALID_SOCKET)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PWSK_SOCKET Socket_ = nullptr;
+        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+
+        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        Status = WSKBindUnsafe(Socket_, SocketType, LocalAddress, AddressLength);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKAccpet(
+    _In_ SOCKET         Socket,
+    _In_ SIZE_T         LocalAddressLength,
+    _Out_opt_ PSOCKADDR LocalAddress,
+    _In_ SIZE_T         RemoteAddressLength,
+    _Out_opt_ PSOCKADDR RemoteAddress
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == WSK_INVALID_SOCKET)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PWSK_SOCKET Socket_ = nullptr;
+        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+
+        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        Status = WSKAcceptUnsafe(Socket_, SocketType,
+            LocalAddressLength, LocalAddress, RemoteAddressLength, RemoteAddress);
 
     } while (false);
 
