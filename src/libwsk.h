@@ -81,3 +81,29 @@ NTSTATUS WSKAPI WSKSocket(
 NTSTATUS WSKAPI WSKCloseSocket(
     _In_ SOCKET Socket
 );
+
+NTSTATUS WSKAPI WSKIoctl(
+    _In_ SOCKET         Socket,
+    _In_ ULONG          ControlCode,
+    _In_ SIZE_T         InputSize,
+    _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer,
+    _In_ SIZE_T         OutputSize,
+    _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
+    _Out_opt_ SIZE_T* OutputSizeReturned
+);
+
+NTSTATUS WSKAPI WSKSetSocketOpt(
+    _In_ SOCKET         Socket,
+    _In_ ULONG          OptionLevel,    // SOL_xxxx
+    _In_ ULONG          OptionName,     // SO_xxxx
+    _In_reads_bytes_(InputSize)     PVOID InputBuffer,
+    _In_ SIZE_T         InputSize
+);
+
+NTSTATUS WSKAPI WSKGetSocketOpt(
+    _In_ SOCKET         Socket,
+    _In_ ULONG          OptionLevel,    // SOL_xxxx
+    _In_ ULONG          OptionName,     // SO_xxxx
+    _Out_writes_bytes_(*OutputSize) PVOID OutputBuffer,
+    _Inout_ SIZE_T*     OutputSize
+);

@@ -53,10 +53,10 @@ PLARGE_INTEGER WSKAPI WSKTimeoutToLargeInteger(
     return Timeout;
 }
 
-NTSTATUS WSKAPI WSKCompletionRoutine(
+NTSTATUS WSKCompletionRoutine(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp,
-    _In_ PVOID Context
+    _In_reads_opt_(_Inexpressible_("varies")) PVOID Context
 );
 
 WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
@@ -103,10 +103,10 @@ VOID WSKAPI WSKFreeContextIRP(
     }
 }
 
-NTSTATUS WSKAPI WSKCompletionRoutine(
+NTSTATUS WSKCompletionRoutine(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp,
-    _In_ PVOID Context
+    _In_reads_opt_(_Inexpressible_("varies")) PVOID Context
 )
 {
     UNREFERENCED_PARAMETER(DeviceObject);
@@ -235,6 +235,75 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
 
         Status = Dispatch->WskCloseSocket(
             Socket,
+            WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        WSKFreeContextIRP(WSKContext);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKControlSocketUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ WSK_CONTROL_SOCKET_TYPE RequestType,
+    _In_ ULONG          ControlCode,
+    _In_ ULONG          OptionLevel,
+    _In_ SIZE_T         InputSize,
+    _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer,
+    _In_ SIZE_T         OutputSize,
+    _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
+    _Out_opt_ SIZE_T*   OutputSizeReturned
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext{};
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        auto Dispatch = static_cast<const WSK_PROVIDER_BASIC_DISPATCH*>(Socket->Dispatch);
+
+        Status = Dispatch->WskControlSocket(
+            Socket,
+            RequestType,
+            ControlCode,
+            OptionLevel,
+            InputSize,
+            InputBuffer,
+            OutputSize,
+            OutputBuffer,
+            OutputSizeReturned,
             WSKContext->Irp);
 
         if (Status == STATUS_PENDING)
@@ -698,6 +767,172 @@ NTSTATUS WSKAPI WSKCloseSocket(
         }
 
         Status = WSKCloseSocketUnsafe(Socket_);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
+        WSKSocketsAVLTableDelete(Socket);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKIoctl(
+    _In_ SOCKET         Socket,
+    _In_ ULONG          ControlCode,
+    _In_ SIZE_T         InputSize,
+    _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer,
+    _In_ SIZE_T         OutputSize,
+    _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
+    _Out_opt_ SIZE_T* OutputSizeReturned
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do
+    {
+        if (OutputSizeReturned)
+        {
+            *OutputSizeReturned = 0u;
+        }
+
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == WSK_INVALID_SOCKET)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PWSK_SOCKET Socket_ = nullptr;
+        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+
+        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        Status = WSKControlSocketUnsafe(Socket_, WskIoctl, ControlCode, 0,
+            InputSize, InputBuffer, OutputSize, OutputBuffer, OutputSizeReturned);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
+        WSKSocketsAVLTableDelete(Socket);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKSetSocketOpt(
+    _In_ SOCKET         Socket,
+    _In_ ULONG          OptionLevel,    // SOL_xxxx
+    _In_ ULONG          OptionName,     // SO_xxxx
+    _In_reads_bytes_(InputSize)     PVOID InputBuffer,
+    _In_ SIZE_T         InputSize
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == WSK_INVALID_SOCKET)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PWSK_SOCKET Socket_ = nullptr;
+        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+
+        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        Status = WSKControlSocketUnsafe(Socket_, WskSetOption, OptionName, OptionLevel,
+            InputSize, InputBuffer, 0, nullptr, nullptr);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
+        WSKSocketsAVLTableDelete(Socket);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKGetSocketOpt(
+    _In_ SOCKET         Socket,
+    _In_ ULONG          OptionLevel,    // SOL_xxxx
+    _In_ ULONG          OptionName,     // SO_xxxx
+    _Out_writes_bytes_(*OutputSize) PVOID OutputBuffer,
+    _Inout_ SIZE_T* OutputSize
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == WSK_INVALID_SOCKET)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PWSK_SOCKET Socket_ = nullptr;
+        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+
+        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        Status = WSKControlSocketUnsafe(Socket_, WskGetOption, OptionName, OptionLevel,
+            0, nullptr, *OutputSize, OutputBuffer, OutputSize);
         if (!NT_SUCCESS(Status))
         {
             break;
