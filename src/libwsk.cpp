@@ -329,7 +329,7 @@ NTSTATUS WSKAPI WSKBindUnsafe(
     _In_ PWSK_SOCKET Socket,
     _In_ ULONG       WskSocketType,
     _In_ PSOCKADDR   LocalAddress,
-    _In_ SIZE_T      AddressLength
+    _In_ SIZE_T      LocalAddressLength
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -343,7 +343,14 @@ NTSTATUS WSKAPI WSKBindUnsafe(
             break;
         }
 
-        if (Socket == nullptr || LocalAddress == nullptr || (AddressLength < sizeof SOCKADDR))
+        if (Socket == nullptr || LocalAddress == nullptr || (LocalAddressLength < sizeof SOCKADDR))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if ((LocalAddress->sa_family == AF_INET  && LocalAddressLength < sizeof SOCKADDR_IN) ||
+            (LocalAddress->sa_family == AF_INET6 && LocalAddressLength < sizeof SOCKADDR_IN6))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
@@ -509,13 +516,14 @@ NTSTATUS WSKAPI WSKConnectUnsafe(
             break;
         }
 
-        if (Socket == nullptr || RemoteAddress == nullptr)
+        if (Socket == nullptr || RemoteAddress == nullptr || (RemoteAddressLength < sizeof SOCKADDR))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (RemoteAddressLength < sizeof SOCKADDR)
+        if ((RemoteAddress->sa_family == AF_INET  && RemoteAddressLength < sizeof SOCKADDR_IN) ||
+            (RemoteAddress->sa_family == AF_INET6 && RemoteAddressLength < sizeof SOCKADDR_IN6))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
