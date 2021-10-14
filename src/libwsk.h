@@ -127,3 +127,8 @@ NTSTATUS WSKAPI WSKConnect(
     _In_ SIZE_T         RemoteAddressLength,
     _In_ PSOCKADDR      RemoteAddress
 );
+
+NTSTATUS WSKAPI WSKDisconnect(
+    _In_ SOCKET         Socket,
+    _In_ ULONG          Flags
+);
