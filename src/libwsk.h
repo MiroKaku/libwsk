@@ -121,3 +121,9 @@ NTSTATUS WSKAPI WSKAccpet(
     _In_ SIZE_T         RemoteAddressLength,
     _Out_opt_ PSOCKADDR RemoteAddress
 );
+
+NTSTATUS WSKAPI WSKConnect(
+    _In_ SOCKET         Socket,
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_ PSOCKADDR      RemoteAddress
+);

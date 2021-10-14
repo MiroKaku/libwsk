@@ -491,6 +491,86 @@ NTSTATUS WSKAPI WSKAcceptUnsafe(
     return Status;
 }
 
+NTSTATUS WSKAPI WSKConnectUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType,
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_ PSOCKADDR      RemoteAddress
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext{};
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == nullptr || RemoteAddress == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (RemoteAddressLength < sizeof SOCKADDR)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PFN_WSK_CONNECT WSKConnectRoutine = nullptr;
+
+        switch (WskSocketType)
+        {
+        case WSK_FLAG_CONNECTION_SOCKET:
+            WSKConnectRoutine = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskConnect;
+            break;
+        case WSK_FLAG_STREAM_SOCKET:
+            WSKConnectRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskConnect;
+            break;
+        }
+
+        if (WSKConnectRoutine == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        Status = WSKConnectRoutine(
+            Socket,
+            RemoteAddress,
+            0,
+            WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        WSKFreeContextIRP(WSKContext);
+
+    } while (false);
+
+    return Status;
+}
+
 //////////////////////////////////////////////////////////////////////////
 // Public  Function
 
@@ -1178,6 +1258,50 @@ NTSTATUS WSKAPI WSKAccpet(
 
         Status = WSKAcceptUnsafe(Socket_, SocketType,
             LocalAddressLength, LocalAddress, RemoteAddressLength, RemoteAddress);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKConnect(
+    _In_ SOCKET         Socket,
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_ PSOCKADDR      RemoteAddress
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == WSK_INVALID_SOCKET)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        PWSK_SOCKET Socket_ = nullptr;
+        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+
+        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        Status = WSKConnectUnsafe(Socket_, SocketType, RemoteAddressLength, RemoteAddress);
 
     } while (false);
 
