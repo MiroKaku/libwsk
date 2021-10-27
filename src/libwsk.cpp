@@ -415,10 +415,10 @@ NTSTATUS WSKAPI WSKBindUnsafe(
 NTSTATUS WSKAPI WSKAcceptUnsafe(
     _In_ PWSK_SOCKET    Socket,
     _In_ ULONG          WskSocketType,
-    _In_ SIZE_T         LocalAddressLength,
     _Out_opt_ PSOCKADDR LocalAddress,
-    _In_ SIZE_T         RemoteAddressLength,
-    _Out_opt_ PSOCKADDR RemoteAddress
+    _In_ SIZE_T         LocalAddressLength,
+    _Out_opt_ PSOCKADDR RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -501,8 +501,8 @@ NTSTATUS WSKAPI WSKAcceptUnsafe(
 NTSTATUS WSKAPI WSKConnectUnsafe(
     _In_ PWSK_SOCKET    Socket,
     _In_ ULONG          WskSocketType,
-    _In_ SIZE_T         RemoteAddressLength,
-    _In_ PSOCKADDR      RemoteAddress
+    _In_ PSOCKADDR      RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -732,8 +732,8 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
     _In_ ULONG          WskSocketType,
     _In_ PWSK_BUF       Buffer,
     _Reserved_ ULONG    Flags,
-    _In_ SIZE_T         RemoteAddressLength,
-    _In_opt_ PSOCKADDR  RemoteAddress
+    _In_opt_ PSOCKADDR  RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -898,8 +898,8 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
     _In_ ULONG          WskSocketType,
     _In_ PWSK_BUF       Buffer,
     _Reserved_ ULONG    Flags,
-    _In_ SIZE_T         RemoteAddressLength,
-    _Out_opt_ PSOCKADDR RemoteAddress
+    _Out_opt_ PSOCKADDR RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1492,9 +1492,9 @@ NTSTATUS WSKAPI WSKIoctl(
 
 NTSTATUS WSKAPI WSKSetSocketOpt(
     _In_ SOCKET         Socket,
-    _In_ ULONG          OptionLevel,    // SOL_xxxx
-    _In_ ULONG          OptionName,     // SO_xxxx
-    _In_reads_bytes_(InputSize)     PVOID InputBuffer,
+    _In_ ULONG          OptionLevel,
+    _In_ ULONG          OptionName,
+    _In_reads_bytes_(InputSize) PVOID InputBuffer,
     _In_ SIZE_T         InputSize
 )
 {
@@ -1539,8 +1539,8 @@ NTSTATUS WSKAPI WSKSetSocketOpt(
 
 NTSTATUS WSKAPI WSKGetSocketOpt(
     _In_ SOCKET         Socket,
-    _In_ ULONG          OptionLevel,    // SOL_xxxx
-    _In_ ULONG          OptionName,     // SO_xxxx
+    _In_ ULONG          OptionLevel,
+    _In_ ULONG          OptionName,
     _Out_writes_bytes_(*OutputSize) PVOID OutputBuffer,
     _Inout_ SIZE_T* OutputSize
 )
@@ -1630,10 +1630,10 @@ NTSTATUS WSKAPI WSKBind(
 
 NTSTATUS WSKAPI WSKAccpet(
     _In_ SOCKET         Socket,
-    _In_ SIZE_T         LocalAddressLength,
     _Out_opt_ PSOCKADDR LocalAddress,
-    _In_ SIZE_T         RemoteAddressLength,
-    _Out_opt_ PSOCKADDR RemoteAddress
+    _In_ SIZE_T         LocalAddressLength,
+    _Out_opt_ PSOCKADDR RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1668,7 +1668,7 @@ NTSTATUS WSKAPI WSKAccpet(
         }
 
         Status = WSKAcceptUnsafe(Socket_, SocketType,
-            LocalAddressLength, LocalAddress, RemoteAddressLength, RemoteAddress);
+            LocalAddress, LocalAddressLength, RemoteAddress, RemoteAddressLength);
 
     } while (false);
 
@@ -1677,8 +1677,8 @@ NTSTATUS WSKAPI WSKAccpet(
 
 NTSTATUS WSKAPI WSKConnect(
     _In_ SOCKET         Socket,
-    _In_ SIZE_T         RemoteAddressLength,
-    _In_ PSOCKADDR      RemoteAddress
+    _In_ PSOCKADDR      RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1712,7 +1712,7 @@ NTSTATUS WSKAPI WSKConnect(
             break;
         }
 
-        Status = WSKConnectUnsafe(Socket_, SocketType, RemoteAddressLength, RemoteAddress);
+        Status = WSKConnectUnsafe(Socket_, SocketType, RemoteAddress, RemoteAddressLength);
 
     } while (false);
 

@@ -116,16 +116,16 @@ NTSTATUS WSKAPI WSKBind(
 
 NTSTATUS WSKAPI WSKAccpet(
     _In_ SOCKET         Socket,
-    _In_ SIZE_T         LocalAddressLength,
     _Out_opt_ PSOCKADDR LocalAddress,
-    _In_ SIZE_T         RemoteAddressLength,
-    _Out_opt_ PSOCKADDR RemoteAddress
+    _In_ SIZE_T         LocalAddressLength,
+    _Out_opt_ PSOCKADDR RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 );
 
 NTSTATUS WSKAPI WSKConnect(
     _In_ SOCKET         Socket,
-    _In_ SIZE_T         RemoteAddressLength,
-    _In_ PSOCKADDR      RemoteAddress
+    _In_ PSOCKADDR      RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 );
 
 NTSTATUS WSKAPI WSKDisconnect(
