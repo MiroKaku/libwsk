@@ -159,7 +159,7 @@ NTSTATUS WSKAPI WSKReceive(
     _In_ ULONG          Flags
 );
 
-NTSTATUS WSKAPI WSKReceiveFromUnsafe(
+NTSTATUS WSKAPI WSKReceiveFrom(
     _In_ SOCKET         Socket,
     _In_ PVOID          Buffer,
     _In_ SIZE_T         BufferLength,
