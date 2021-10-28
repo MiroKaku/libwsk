@@ -111,7 +111,7 @@ NTSTATUS WSKAPI WSKGetSocketOpt(
 NTSTATUS WSKAPI WSKBind(
     _In_ SOCKET         Socket,
     _In_ PSOCKADDR      LocalAddress,
-    _In_ SIZE_T         AddressLength
+    _In_ SIZE_T         LocalAddressLength
 );
 
 NTSTATUS WSKAPI WSKAccpet(
@@ -131,4 +131,40 @@ NTSTATUS WSKAPI WSKConnect(
 NTSTATUS WSKAPI WSKDisconnect(
     _In_ SOCKET         Socket,
     _In_ ULONG          Flags
+);
+
+NTSTATUS WSKAPI WSKSend(
+    _In_ SOCKET         Socket,
+    _In_ PVOID          Buffer,
+    _In_ SIZE_T         BufferLength,
+    _Out_opt_ SIZE_T*   NumberOfBytesSent,
+    _In_ ULONG          dwFlags
+);
+
+NTSTATUS WSKAPI WSKSendTo(
+    _In_ SOCKET         Socket,
+    _In_ PVOID          Buffer,
+    _In_ SIZE_T         BufferLength,
+    _Out_opt_ SIZE_T*   NumberOfBytesSent,
+    _Reserved_ ULONG    Flags,
+    _In_opt_ PSOCKADDR  RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
+);
+
+NTSTATUS WSKAPI WSKReceive(
+    _In_ SOCKET         Socket,
+    _In_ PVOID          Buffer,
+    _In_ SIZE_T         BufferLength,
+    _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
+    _In_ ULONG          Flags
+);
+
+NTSTATUS WSKAPI WSKReceiveFromUnsafe(
+    _In_ SOCKET         Socket,
+    _In_ PVOID          Buffer,
+    _In_ SIZE_T         BufferLength,
+    _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
+    _Reserved_ ULONG    Flags,
+    _Out_opt_ PSOCKADDR RemoteAddress,
+    _In_ SIZE_T         RemoteAddressLength
 );
