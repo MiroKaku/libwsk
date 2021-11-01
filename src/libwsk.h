@@ -115,11 +115,17 @@ NTSTATUS WSKAPI WSKBind(
 );
 
 NTSTATUS WSKAPI WSKAccpet(
-    _In_ SOCKET         Socket,
+    _In_  SOCKET        Socket,
+    _Out_ SOCKET*       SocketClient,
     _Out_opt_ PSOCKADDR LocalAddress,
     _In_ SIZE_T         LocalAddressLength,
     _Out_opt_ PSOCKADDR RemoteAddress,
     _In_ SIZE_T         RemoteAddressLength
+);
+
+NTSTATUS WSKAPI WSKListen(
+    _In_ SOCKET         Socket,
+    _In_ INT            BackLog
 );
 
 NTSTATUS WSKAPI WSKConnect(
