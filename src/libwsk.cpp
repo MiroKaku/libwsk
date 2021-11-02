@@ -717,6 +717,15 @@ NTSTATUS WSKAPI WSKConnectUnsafe(
 
     do
     {
+        SOCKADDR_STORAGE LocalAddress{};
+        LocalAddress.ss_family = RemoteAddress->sa_family;
+
+        Status = WSKBindUnsafe(Socket, WskSocketType, reinterpret_cast<PSOCKADDR>(&LocalAddress), sizeof LocalAddress);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
         if (!InterlockedCompareExchange(&_Initialized, true, true))
         {
             Status = STATUS_NDIS_ADAPTER_NOT_READY;
