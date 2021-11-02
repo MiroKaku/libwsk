@@ -139,7 +139,8 @@ NTSTATUS WSKCompletionRoutine(
 NTSTATUS WSKAPI WSKLockBuffer(
     _In_  PVOID    Buffer,
     _In_  SIZE_T   BufferLength,
-    _Out_ PWSK_BUF WSKBuffer
+    _Out_ PWSK_BUF WSKBuffer,
+    _In_  BOOLEAN  ReadOnly
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -162,7 +163,7 @@ NTSTATUS WSKAPI WSKLockBuffer(
                 (WSKBuffer->Mdl->MdlFlags & MDL_PAGES_LOCKED) != MDL_PAGES_LOCKED &&
                 (WSKBuffer->Mdl->MdlFlags & MDL_SOURCE_IS_NONPAGED_POOL) != MDL_SOURCE_IS_NONPAGED_POOL)
             {
-                MmProbeAndLockPages(WSKBuffer->Mdl, KernelMode, IoWriteAccess);
+                MmProbeAndLockPages(WSKBuffer->Mdl, KernelMode, ReadOnly ? IoReadAccess : IoWriteAccess);
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -179,9 +180,10 @@ NTSTATUS WSKAPI WSKLockBuffer(
 }
 
 //NTSTATUS WSKAPI WSKLockBuffer(
-//    _In_ PNET_BUFFER_LIST NetBufferList,
-//    _In_ ULONG BufferOffset,
-//    _Out_ PWSK_BUF WSKBuffer
+//    _In_  PNET_BUFFER_LIST NetBufferList,
+//    _In_  ULONG BufferOffset,
+//    _Out_ PWSK_BUF WSKBuffer,
+//    _In_  BOOLEAN  ReadOnly
 //)
 //{
 //    NTSTATUS Status = STATUS_SUCCESS;
@@ -204,7 +206,7 @@ NTSTATUS WSKAPI WSKLockBuffer(
 //                (WSKBuffer->Mdl->MdlFlags & MDL_PAGES_LOCKED) != MDL_PAGES_LOCKED &&
 //                (WSKBuffer->Mdl->MdlFlags & MDL_SOURCE_IS_NONPAGED_POOL) != MDL_SOURCE_IS_NONPAGED_POOL)
 //            {
-//                MmProbeAndLockPages(WSKBuffer->Mdl, KernelMode, IoWriteAccess);
+//                MmProbeAndLockPages(WSKBuffer->Mdl, KernelMode, ReadOnly ? IoReadAccess : IoWriteAccess);
 //            }
 //        }
 //        __except (EXCEPTION_EXECUTE_HANDLER)
@@ -363,6 +365,7 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
 
 NTSTATUS WSKAPI WSKControlSocketUnsafe(
     _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType,
     _In_ WSK_CONTROL_SOCKET_TYPE RequestType,
     _In_ ULONG          ControlCode,
     _In_ ULONG          OptionLevel,
@@ -387,6 +390,32 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
         if (Socket == nullptr)
         {
             Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (RequestType == WskGetOption && OptionLevel == SOL_SOCKET && ControlCode == SO_TYPE)
+        {
+            if (OutputSize != sizeof(int))
+            {
+                Status = STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+            if (OutputSizeReturned)
+            {
+                *OutputSizeReturned = OutputSize;
+            }
+
+            if (WskSocketType == WSK_FLAG_DATAGRAM_SOCKET)
+            {
+                *static_cast<int*>(OutputBuffer) = SOCK_DGRAM;
+            }
+            else
+            {
+                *static_cast<int*>(OutputBuffer) = SOCK_STREAM;
+            }
+
+            Status = STATUS_SUCCESS;
             break;
         }
 
@@ -881,7 +910,7 @@ NTSTATUS WSKAPI WSKSendUnsafe(
         }
 
         WSK_BUF WSKBuffer{};
-        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer);
+        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer, true);
         if (!NT_SUCCESS(Status))
         {
             break;
@@ -992,7 +1021,7 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
         }
 
         WSK_BUF WSKBuffer{};
-        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer);
+        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer, true);
         if (!NT_SUCCESS(Status))
         {
             break;
@@ -1089,7 +1118,7 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
         }
 
         WSK_BUF WSKBuffer{};
-        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer);
+        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer, false);
         if (!NT_SUCCESS(Status))
         {
             break;
@@ -1191,7 +1220,7 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
         }
 
         WSK_BUF WSKBuffer{};
-        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer);
+        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer, false);
         if (!NT_SUCCESS(Status))
         {
             break;
@@ -1364,8 +1393,8 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
 
         Status = WSKNPIProvider.Dispatch->WskGetAddressInfo(
             WSKNPIProvider.Client,
-            &NodeNameS,
-            &ServiceNameS,
+            NodeName    ? &NodeNameS    : nullptr,
+            ServiceName ? &ServiceNameS : nullptr,
             Namespace,
             Provider,
             Hints,
@@ -1382,6 +1411,13 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
 
                 Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
                     FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
+
+                if (Status == STATUS_TIMEOUT)
+                {
+                    IoCancelIrp(WSKContext->Irp);
+                    KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+                }
+
                 if (Status == STATUS_SUCCESS)
                 {
                     Status = WSKContext->Irp->IoStatus.Status;
@@ -1748,7 +1784,7 @@ NTSTATUS WSKAPI WSKIoctl(
             break;
         }
 
-        Status = WSKControlSocketUnsafe(Socket_, WskIoctl, ControlCode, 0,
+        Status = WSKControlSocketUnsafe(Socket_, SocketType, WskIoctl, ControlCode, 0,
             InputSize, InputBuffer, OutputSize, OutputBuffer, OutputSizeReturned);
 
     } while (false);
@@ -1795,7 +1831,7 @@ NTSTATUS WSKAPI WSKSetSocketOpt(
             break;
         }
 
-        Status = WSKControlSocketUnsafe(Socket_, WskSetOption, OptionName, OptionLevel,
+        Status = WSKControlSocketUnsafe(Socket_, SocketType, WskSetOption, OptionName, OptionLevel,
             InputSize, InputBuffer, 0, nullptr, nullptr);
 
     } while (false);
@@ -1842,7 +1878,7 @@ NTSTATUS WSKAPI WSKGetSocketOpt(
             break;
         }
 
-        Status = WSKControlSocketUnsafe(Socket_, WskGetOption, OptionName, OptionLevel,
+        Status = WSKControlSocketUnsafe(Socket_, SocketType, WskGetOption, OptionName, OptionLevel,
             0, nullptr, *OutputSize, OutputBuffer, OutputSize);
 
     } while (false);
