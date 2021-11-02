@@ -48,19 +48,24 @@ NTSTATUS DriverEntry(_In_ DRIVER_OBJECT* DriverObject, _In_ PUNICODE_STRING Regi
             break;
         }
 
-        Status = unittest::StartWSKServer(nullptr, nullptr, AF_INET, SOCK_STREAM);
+        Status = unittest::StartWSKServer(nullptr, L"20211", AF_INET, SOCK_STREAM);
         if (!NT_SUCCESS(Status))
         {
             break;
         }
 
-        Status = unittest::StartWSKClient(nullptr, nullptr, AF_INET, SOCK_STREAM);
+        Status = unittest::StartWSKClient(nullptr, L"20211", AF_INET, SOCK_STREAM);
         if (!NT_SUCCESS(Status))
         {
             break;
         }
 
     } while (false);
+
+    if (!NT_SUCCESS(Status))
+    {
+        DriverUnload(DriverObject);
+    }
 
     return Status;
 }
@@ -80,12 +85,12 @@ namespace unittest
     constexpr ULONG  POOL_TAG = 'TSET'; // TEST
     constexpr size_t DEFAULT_BUFFER_LEN = PAGE_SIZE;
 
-    SIZE_T  SocketCount   = 0u;
-    SOCKET* ServerSockets = nullptr;
-    HANDLE* ServerThreads = nullptr;
+    SIZE_T    SocketCount   = 0u;
+    SOCKET*   ServerSockets = nullptr;
+    PETHREAD* ServerThreads = nullptr;
 
-    SOCKET  ClientSocket = WSK_INVALID_SOCKET;
-    HANDLE  ClientThread = nullptr;
+    SOCKET    ClientSocket = WSK_INVALID_SOCKET;
+    PETHREAD  ClientThread = nullptr;
 
     NTSTATUS WSKServerThread(
         _In_ SOCKET Socket
@@ -193,10 +198,10 @@ namespace unittest
                         else
                         {
                             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                                "[WSK] [Server] Read %d bytes.\n",
+                                "[WSK] [Server] Read %Id bytes.\n",
                                 Bytes);
 
-                            Status = WSKSend(SocketClient, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0);
+                            Status = WSKSend(SocketClient, Buffer, Bytes, &Bytes, 0);
                             if (!NT_SUCCESS(Status))
                             {
                                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -207,7 +212,7 @@ namespace unittest
                             }
 
                             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                                "[WSK] [Server] Wrote %d bytes.\n",
+                                "[WSK] [Server] Wrote %Id bytes.\n",
                                 Bytes);
                         }
                     }
@@ -242,7 +247,7 @@ namespace unittest
                         "[WSK] [Server] Read %Id bytes from host %ls and port %ls.\n",
                         Bytes, HostName, PortName);
 
-                    Status = WSKSendTo(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0,
+                    Status = WSKSendTo(Socket, Buffer, Bytes, &Bytes, 0,
                         (SOCKADDR*)&FromAddress, sizeof FromAddress);
                     if (!NT_SUCCESS(Status))
                     {
@@ -412,8 +417,8 @@ namespace unittest
                 }
 
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[WSK] [Server] Socket 0x%X bound to address %ls and port %ls.\n",
-                    ServerSockets[Index], NodeName, ServiceName);
+                    "[WSK] [Server] Socket 0x%IX bound to address %ls and port %ls.\n",
+                    ServerSockets[Index], HostName, PortName);
 
                 ++Index;
             }
@@ -422,8 +427,8 @@ namespace unittest
                 break;
             }
 
-            ServerThreads = (HANDLE*)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                SocketCount * sizeof HANDLE, POOL_TAG);
+            ServerThreads = (PETHREAD*)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
+                SocketCount * sizeof PETHREAD, POOL_TAG);
             if (ServerThreads == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -435,7 +440,9 @@ namespace unittest
 
             for (auto i = 0u; i < SocketCount; ++i)
             {
-                Status = PsCreateSystemThread(&ServerThreads[i], 0,
+                HANDLE ThreadHandle = nullptr;
+
+                Status = PsCreateSystemThread(&ThreadHandle, SYNCHRONIZE,
                     nullptr, nullptr, nullptr,
                     [](PVOID Context) { PsTerminateSystemThread(WSKServerThread(reinterpret_cast<SOCKET>(Context))); },
                     reinterpret_cast<PVOID>(ServerSockets[i]));
@@ -443,6 +450,20 @@ namespace unittest
                 {
                     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
                         "[WSK] [Server] PsCreateSystemThread(%d) failed: 0x%08X.\n",
+                        i, Status);
+
+                    break;
+                }
+
+                Status = ObReferenceObjectByHandleWithTag(ThreadHandle, SYNCHRONIZE, *PsThreadType, KernelMode,
+                    POOL_TAG, reinterpret_cast<PVOID*>(&ServerThreads[i]), nullptr);
+
+                ZwClose(ThreadHandle);
+
+                if (!NT_SUCCESS(Status))
+                {
+                    DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                        "[WSK] [Server] ObReferenceObjectByHandleWithTag(%d) failed: 0x%08X.\n",
                         i, Status);
 
                     break;
@@ -493,11 +514,14 @@ namespace unittest
 
         if (ServerThreads)
         {
+            KeWaitForMultipleObjects(static_cast<ULONG>(SocketCount), reinterpret_cast<PVOID*>(ServerThreads),
+                WaitAll, Executive, KernelMode, FALSE, nullptr, nullptr);
+
             for (auto i = 0u; i < SocketCount; ++i)
             {
                 if (ServerThreads[i])
                 {
-                    ZwClose(ServerThreads[i]);
+                    ObDereferenceObjectWithTag(ServerThreads[i], POOL_TAG);
                 }
             }
 
@@ -649,7 +673,7 @@ namespace unittest
 
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
                     "[WSK] [Client] Client attempting connection to: %ls port: %ls.\n",
-                    NodeName, ServiceName);
+                    HostName, PortName);
 
                 Status = WSKConnect(ClientSocket, Addr->ai_addr, Addr->ai_addrlen);
                 if (NT_SUCCESS(Status))
@@ -673,7 +697,9 @@ namespace unittest
             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
                 "[WSK] [Client] Connection established...\n");
 
-            Status = PsCreateSystemThread(&ClientThread, 0,
+            HANDLE ThreadHandle = nullptr;
+
+            Status = PsCreateSystemThread(&ThreadHandle, SYNCHRONIZE,
                 nullptr, nullptr, nullptr,
                 [](PVOID Context) { PsTerminateSystemThread(WSKClientThread(reinterpret_cast<SOCKET>(Context))); },
                 reinterpret_cast<PVOID>(ClientSocket));
@@ -681,6 +707,20 @@ namespace unittest
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
                     "[WSK] [Client] PsCreateSystemThread failed: 0x%08X.\n",
+                    Status);
+
+                break;
+            }
+
+            Status = ObReferenceObjectByHandleWithTag(ThreadHandle, SYNCHRONIZE, *PsThreadType, KernelMode,
+                POOL_TAG, reinterpret_cast<PVOID*>(&ClientThread), nullptr);
+
+            ZwClose(ThreadHandle);
+
+            if (!NT_SUCCESS(Status))
+            {
+                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                    "[WSK] [Client] ObReferenceObjectByHandleWithTag failed: 0x%08X.\n",
                     Status);
 
                 break;
@@ -722,7 +762,8 @@ namespace unittest
 
         if (ClientThread)
         {
-            ZwClose(ClientThread);
+            KeWaitForSingleObject(ClientThread, Executive, KernelMode, FALSE, nullptr);
+            ObDereferenceObjectWithTag(ClientThread, POOL_TAG);
 
             ClientThread = nullptr;
         }
