@@ -19,6 +19,9 @@ struct WSK_CONTEXT_IRP
     KEVENT  Event;
     PVOID   Context;
     PVOID   CompletionRoutine; // WSK_COMPLETION_ROUTINE
+
+    WSK_BUF InputBuffer;
+    WSK_BUF OutputBuffer;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -53,89 +56,6 @@ PLARGE_INTEGER WSKAPI WSKTimeoutToLargeInteger(
     return Timeout;
 }
 
-NTSTATUS WSKCompletionRoutine(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP Irp,
-    _In_reads_opt_(_Inexpressible_("varies")) PVOID Context
-);
-
-WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
-    _In_opt_ PVOID CompletionRoutine,
-    _In_opt_ PVOID Context
-)
-{
-    auto WSKContext = static_cast<WSK_CONTEXT_IRP*>(
-        ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(WSK_CONTEXT_IRP), WSK_POOL_TAG));
-    if (WSKContext == nullptr)
-    {
-        return nullptr;
-    }
-
-    WSKContext->CompletionRoutine = CompletionRoutine;
-    WSKContext->Context = Context;
-
-    WSKContext->Irp = IoAllocateIrp(1, FALSE);
-    if (WSKContext->Irp == nullptr)
-    {
-        ExFreePoolWithTag(WSKContext, WSK_POOL_TAG);
-        return nullptr;
-    }
-
-    KeInitializeEvent(&WSKContext->Event, SynchronizationEvent, FALSE);
-
-    IoSetCompletionRoutine(WSKContext->Irp, WSKCompletionRoutine, WSKContext, TRUE, TRUE, TRUE);
-
-    return WSKContext;
-}
-
-VOID WSKAPI WSKFreeContextIRP(
-    _In_ WSK_CONTEXT_IRP* WSKContext
-)
-{
-    if (WSKContext)
-    {
-        if (WSKContext->Irp)
-        {
-            IoFreeIrp(WSKContext->Irp);
-        }
-
-        ExFreePoolWithTag(WSKContext, WSK_POOL_TAG);
-    }
-}
-
-NTSTATUS WSKCompletionRoutine(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP Irp,
-    _In_reads_opt_(_Inexpressible_("varies")) PVOID Context
-)
-{
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    auto WSKContext = static_cast<WSK_CONTEXT_IRP*>(Context);
-
-    if (WSKContext->CompletionRoutine)
-    {
-        auto Routine = static_cast<WSK_COMPLETION_ROUTINE>(WSKContext->CompletionRoutine);
-
-        __try
-        {
-            Routine(Irp->IoStatus.Status, Irp->IoStatus.Information, WSKContext->Context);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            __nop();
-        }
-
-        WSKFreeContextIRP(WSKContext);
-    }
-    else
-    {
-        KeSetEvent(&WSKContext->Event, IO_NO_INCREMENT, FALSE);
-    }
-
-    return STATUS_MORE_PROCESSING_REQUIRED;
-}
-
 NTSTATUS WSKAPI WSKLockBuffer(
     _In_  PVOID    Buffer,
     _In_  SIZE_T   BufferLength,
@@ -145,7 +65,7 @@ NTSTATUS WSKAPI WSKLockBuffer(
 {
     NTSTATUS Status = STATUS_SUCCESS;
 
-    do 
+    do
     {
         WSKBuffer->Offset = 0;
         WSKBuffer->Length = BufferLength;
@@ -241,6 +161,142 @@ VOID WSKAPI WSKUnlockBuffer(
             WSKBuffer->Mdl = nullptr;
         }
     }
+}
+
+NTSTATUS WSKCompletionRoutine(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP Irp,
+    _In_reads_opt_(_Inexpressible_("varies")) PVOID Context
+);
+
+VOID WSKAPI WSKFreeContextIRP(
+    _In_ WSK_CONTEXT_IRP* WSKContext
+)
+{
+    if (WSKContext)
+    {
+        if (WSKContext->Irp)
+        {
+            IoFreeIrp(WSKContext->Irp);
+        }
+
+        WSKUnlockBuffer(&WSKContext->InputBuffer);
+        WSKUnlockBuffer(&WSKContext->OutputBuffer);
+
+        ExFreePoolWithTag(WSKContext, WSK_POOL_TAG);
+    }
+}
+
+WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
+    _In_opt_ PVOID CompletionRoutine,
+    _In_opt_ PVOID Context,
+    _In_opt_ BOOLEAN OnlyReadInputBuffer = true,
+    _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer = nullptr,
+    _In_ SIZE_T         InputSize = 0,
+    _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer = nullptr,
+    _In_ SIZE_T         OutputSize = 0
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
+
+    do 
+    {
+        WSKContext = static_cast<WSK_CONTEXT_IRP*>(
+            ExAllocatePoolZero(NonPagedPoolNx, sizeof(WSK_CONTEXT_IRP), WSK_POOL_TAG));
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        WSKContext->CompletionRoutine = CompletionRoutine;
+        WSKContext->Context = Context;
+
+        if (InputBuffer)
+        {
+            Status = WSKLockBuffer(InputBuffer, InputSize, &WSKContext->InputBuffer, OnlyReadInputBuffer);
+            if (!NT_SUCCESS(Status))
+            {
+                break;
+            }
+        }
+
+        if (OutputBuffer)
+        {
+            Status = WSKLockBuffer(OutputBuffer, OutputSize, &WSKContext->OutputBuffer, false);
+            if (!NT_SUCCESS(Status))
+            {
+                break;
+            }
+        }
+
+        WSKContext->Irp = IoAllocateIrp(1, FALSE);
+        if (WSKContext->Irp == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        KeInitializeEvent(&WSKContext->Event, SynchronizationEvent, FALSE);
+        IoSetCompletionRoutine(WSKContext->Irp, WSKCompletionRoutine, WSKContext, TRUE, TRUE, TRUE);
+
+    } while (false);
+
+    if (!NT_SUCCESS(Status))
+    {
+        if (WSKContext)
+        {
+            WSKFreeContextIRP(WSKContext);
+            WSKContext = nullptr;
+        }
+    }
+
+    return WSKContext;
+}
+
+NTSTATUS WSKCompletionRoutine(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP Irp,
+    _In_reads_opt_(_Inexpressible_("varies")) PVOID Context
+)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    auto WSKContext = static_cast<WSK_CONTEXT_IRP*>(Context);
+
+    if (WSKContext->CompletionRoutine)
+    {
+        auto Routine = static_cast<WSK_COMPLETION_ROUTINE>(WSKContext->CompletionRoutine);
+
+        __try
+        {
+            Routine(Irp->IoStatus.Status, Irp->IoStatus.Information, WSKContext->Context);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            __nop();
+        }
+
+        WSKFreeContextIRP(WSKContext);
+    }
+    else
+    {
+        KeSetEvent(&WSKContext->Event, IO_NO_INCREMENT, FALSE);
+    }
+
+    return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
+VOID NTAPI WSKEmptyAsync(
+    _In_ NTSTATUS  Status,
+    _In_ ULONG_PTR Bytes,
+    _In_ PVOID     Context
+)
+{
+    UNREFERENCED_PARAMETER(Status);
+    UNREFERENCED_PARAMETER(Bytes);
+    UNREFERENCED_PARAMETER(Context);
 }
 
 NTSTATUS WSKAPI WSKSocketUnsafe(
@@ -369,10 +425,10 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
     _In_ WSK_CONTROL_SOCKET_TYPE RequestType,
     _In_ ULONG          ControlCode,
     _In_ ULONG          OptionLevel,
-    _In_ SIZE_T         InputSize,
     _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer,
-    _In_ SIZE_T         OutputSize,
+    _In_ SIZE_T         InputSize,
     _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
+    _In_ SIZE_T         OutputSize,
     _Out_opt_ SIZE_T*   OutputSizeReturned
 )
 {
@@ -417,6 +473,36 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
 
             Status = STATUS_SUCCESS;
             break;
+        }
+
+        if (RequestType == WskIoctl)
+        {
+            if (ControlCode == SIO_WSK_SET_REMOTE_ADDRESS ||
+                ControlCode == SIO_WSK_SET_SENDTO_ADDRESS)
+            {
+                auto RemoteAddress = static_cast<PSOCKADDR>(InputBuffer);
+                if (RemoteAddress == nullptr || InputSize < sizeof SOCKADDR)
+                {
+                    Status = STATUS_INVALID_PARAMETER;
+                    break;
+                }
+
+                NTSTATUS WSKAPI WSKBindUnsafe(
+                    _In_ PWSK_SOCKET Socket,
+                    _In_ ULONG       WskSocketType,
+                    _In_ PSOCKADDR   LocalAddress,
+                    _In_ SIZE_T      LocalAddressLength
+                );
+
+                SOCKADDR_STORAGE LocalAddress{};
+                LocalAddress.ss_family = RemoteAddress->sa_family;
+
+                Status = WSKBindUnsafe(Socket, WskSocketType, reinterpret_cast<PSOCKADDR>(&LocalAddress), sizeof LocalAddress);
+                if (!NT_SUCCESS(Status))
+                {
+                    break;
+                }
+            }
         }
 
         WSKContext = WSKAllocContextIRP(nullptr, nullptr);
@@ -918,25 +1004,16 @@ NTSTATUS WSKAPI WSKSendUnsafe(
             break;
         }
 
-        WSK_BUF WSKBuffer{};
-        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer, true);
-        if (!NT_SUCCESS(Status))
-        {
-            break;
-        }
-
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr, true, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
-            WSKUnlockBuffer(&WSKBuffer);
-
             Status = STATUS_INSUFFICIENT_RESOURCES;
             break;
         }
 
         Status = WSKSendRoutine(
             Socket,
-            &WSKBuffer,
+            &WSKContext->InputBuffer,
             Flags,
             WSKContext->Irp);
 
@@ -958,7 +1035,6 @@ NTSTATUS WSKAPI WSKSendUnsafe(
         }
 
         WSKFreeContextIRP(WSKContext);
-        WSKUnlockBuffer(&WSKBuffer);
 
     } while (false);
 
@@ -1029,14 +1105,7 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
             break;
         }
 
-        WSK_BUF WSKBuffer{};
-        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer, true);
-        if (!NT_SUCCESS(Status))
-        {
-            break;
-        }
-
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        WSKContext = WSKAllocContextIRP(static_cast<void*>(&WSKEmptyAsync), nullptr, true, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1045,32 +1114,24 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
 
         Status = WSKSendToRoutine(
             Socket,
-            &WSKBuffer,
+            &WSKContext->InputBuffer,
             Flags,
             RemoteAddress,
             0,
             nullptr,
             WSKContext->Irp);
 
-        if (Status == STATUS_PENDING)
-        {
-            LARGE_INTEGER Timeout{};
-
-            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
-                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
-            if (Status == STATUS_SUCCESS)
-            {
-                Status = WSKContext->Irp->IoStatus.Status;
-            }
-        }
-
         if (NumberOfBytesSent)
         {
-            *NumberOfBytesSent = WSKContext->Irp->IoStatus.Information;
+            if (Status == STATUS_SUCCESS)
+            {
+                *NumberOfBytesSent = WSKContext->Irp->IoStatus.Information;
+            }
+            else
+            {
+                *NumberOfBytesSent = BufferLength;
+            }
         }
-
-        WSKFreeContextIRP(WSKContext);
-        WSKUnlockBuffer(&WSKBuffer);
 
     } while (false);
 
@@ -1126,14 +1187,7 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
             break;
         }
 
-        WSK_BUF WSKBuffer{};
-        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer, false);
-        if (!NT_SUCCESS(Status))
-        {
-            break;
-        }
-
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr, true, nullptr, 0, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1142,7 +1196,7 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
 
         Status = WSKReceiveRoutine(
             Socket,
-            &WSKBuffer,
+            &WSKContext->OutputBuffer,
             Flags,
             WSKContext->Irp);
 
@@ -1164,7 +1218,6 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
         }
 
         WSKFreeContextIRP(WSKContext);
-        WSKUnlockBuffer(&WSKBuffer);
 
     } while (false);
 
@@ -1228,14 +1281,7 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
             break;
         }
 
-        WSK_BUF WSKBuffer{};
-        Status = WSKLockBuffer(Buffer, BufferLength, &WSKBuffer, false);
-        if (!NT_SUCCESS(Status))
-        {
-            break;
-        }
-
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr, true, nullptr, 0, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1247,7 +1293,7 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
 
         Status = WSKReceiveFromRoutine(
             Socket,
-            &WSKBuffer,
+            &WSKContext->OutputBuffer,
             Flags,
             RemoteAddress,
             &ControlLength,
@@ -1273,7 +1319,6 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
         }
 
         WSKFreeContextIRP(WSKContext);
-        WSKUnlockBuffer(&WSKBuffer);
 
     } while (false);
 
@@ -1750,10 +1795,10 @@ NTSTATUS WSKAPI WSKCloseSocket(
 NTSTATUS WSKAPI WSKIoctl(
     _In_ SOCKET         Socket,
     _In_ ULONG          ControlCode,
-    _In_ SIZE_T         InputSize,
     _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer,
-    _In_ SIZE_T         OutputSize,
+    _In_ SIZE_T         InputSize,
     _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
+    _In_ SIZE_T         OutputSize,
     _Out_opt_ SIZE_T* OutputSizeReturned
 )
 {
@@ -1794,7 +1839,7 @@ NTSTATUS WSKAPI WSKIoctl(
         }
 
         Status = WSKControlSocketUnsafe(Socket_, SocketType, WskIoctl, ControlCode, 0,
-            InputSize, InputBuffer, OutputSize, OutputBuffer, OutputSizeReturned);
+            InputBuffer, InputSize, OutputBuffer, OutputSize, OutputSizeReturned);
 
     } while (false);
 
@@ -1841,7 +1886,7 @@ NTSTATUS WSKAPI WSKSetSocketOpt(
         }
 
         Status = WSKControlSocketUnsafe(Socket_, SocketType, WskSetOption, OptionName, OptionLevel,
-            InputSize, InputBuffer, 0, nullptr, nullptr);
+            InputBuffer, InputSize, nullptr, 0, nullptr);
 
     } while (false);
 
@@ -1888,7 +1933,7 @@ NTSTATUS WSKAPI WSKGetSocketOpt(
         }
 
         Status = WSKControlSocketUnsafe(Socket_, SocketType, WskGetOption, OptionName, OptionLevel,
-            0, nullptr, *OutputSize, OutputBuffer, OutputSize);
+            nullptr, 0, OutputBuffer, *OutputSize, OutputSize);
 
     } while (false);
 

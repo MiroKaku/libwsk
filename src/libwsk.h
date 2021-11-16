@@ -85,10 +85,10 @@ NTSTATUS WSKAPI WSKCloseSocket(
 NTSTATUS WSKAPI WSKIoctl(
     _In_ SOCKET         Socket,
     _In_ ULONG          ControlCode,
-    _In_ SIZE_T         InputSize,
     _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer,
-    _In_ SIZE_T         OutputSize,
+    _In_ SIZE_T         InputSize,
     _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
+    _In_ SIZE_T         OutputSize,
     _Out_opt_ SIZE_T* OutputSizeReturned
 );
 

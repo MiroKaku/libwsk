@@ -9,7 +9,7 @@ DRIVER_INITIALIZE   DriverEntry;
 DRIVER_UNLOAD       DriverUnload;
 EXTERN_C_END
 
-namespace unittest
+namespace UnitTest
 {
     NTSTATUS StartWSKServer(
         _In_opt_ LPCWSTR NodeName,
@@ -48,13 +48,13 @@ NTSTATUS DriverEntry(_In_ DRIVER_OBJECT* DriverObject, _In_ PUNICODE_STRING Regi
             break;
         }
 
-        Status = unittest::StartWSKServer(nullptr, L"20211", AF_INET, SOCK_STREAM);
+        Status = UnitTest::StartWSKServer(nullptr, L"20211", AF_INET, SOCK_DGRAM);
         if (!NT_SUCCESS(Status))
         {
             break;
         }
 
-        Status = unittest::StartWSKClient(nullptr, L"20211", AF_INET, SOCK_STREAM);
+        Status = UnitTest::StartWSKClient(nullptr, L"20211", AF_INET, SOCK_DGRAM);
         if (!NT_SUCCESS(Status))
         {
             break;
@@ -74,13 +74,13 @@ VOID DriverUnload(_In_ DRIVER_OBJECT* DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);
 
-    unittest::CloseWSKClient();
-    unittest::CloseWSKServer();
+    UnitTest::CloseWSKClient();
+    UnitTest::CloseWSKServer();
 
     WSKCleanup();
 }
 
-namespace unittest
+namespace UnitTest
 {
     constexpr ULONG  POOL_TAG = 'TSET'; // TEST
     constexpr size_t DEFAULT_BUFFER_LEN = PAGE_SIZE;
@@ -89,8 +89,8 @@ namespace unittest
     SOCKET*   ServerSockets = nullptr;
     PETHREAD* ServerThreads = nullptr;
 
-    SOCKET    ClientSocket = WSK_INVALID_SOCKET;
-    PETHREAD  ClientThread = nullptr;
+    SOCKET    ClientSocket  = WSK_INVALID_SOCKET;
+    PETHREAD  ClientThread  = nullptr;
 
     NTSTATUS WSKServerThread(
         _In_ SOCKET Socket
@@ -119,8 +119,7 @@ namespace unittest
                 break;
             }
 
-            Buffer = ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                DEFAULT_BUFFER_LEN, POOL_TAG);
+            Buffer = ExAllocatePoolZero(PagedPool, DEFAULT_BUFFER_LEN, POOL_TAG);
             if (Buffer == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -130,10 +129,8 @@ namespace unittest
                 break;
             }
 
-            HostName = (LPWSTR)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                NI_MAXHOST * sizeof WCHAR, POOL_TAG);
-            PortName = (LPWSTR)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                NI_MAXSERV * sizeof WCHAR, POOL_TAG);
+            HostName = (LPWSTR)ExAllocatePoolZero(PagedPool, NI_MAXHOST * sizeof WCHAR, POOL_TAG);
+            PortName = (LPWSTR)ExAllocatePoolZero(PagedPool, NI_MAXSERV * sizeof WCHAR, POOL_TAG);
 
             if (HostName == nullptr || PortName == nullptr)
             {
@@ -305,10 +302,8 @@ namespace unittest
 
         do 
         {
-            HostName = (LPWSTR)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                NI_MAXHOST * sizeof WCHAR, POOL_TAG);
-            PortName = (LPWSTR)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                NI_MAXSERV * sizeof WCHAR, POOL_TAG);
+            HostName = (LPWSTR)ExAllocatePoolZero(PagedPool, NI_MAXHOST * sizeof WCHAR, POOL_TAG);
+            PortName = (LPWSTR)ExAllocatePoolZero(PagedPool, NI_MAXSERV * sizeof WCHAR, POOL_TAG);
 
             if (HostName == nullptr || PortName == nullptr)
             {
@@ -352,8 +347,7 @@ namespace unittest
                 ++SocketCount;
             }
 
-            ServerSockets = (SOCKET*)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                SocketCount * sizeof SOCKET, POOL_TAG);
+            ServerSockets = (SOCKET*)ExAllocatePoolZero(PagedPool, SocketCount * sizeof SOCKET, POOL_TAG);
             if (ServerSockets == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -427,8 +421,7 @@ namespace unittest
                 break;
             }
 
-            ServerThreads = (PETHREAD*)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                SocketCount * sizeof PETHREAD, POOL_TAG);
+            ServerThreads = (PETHREAD*)ExAllocatePoolZero(PagedPool, SocketCount * sizeof PETHREAD, POOL_TAG);
             if (ServerThreads == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -537,51 +530,122 @@ namespace unittest
     {
         NTSTATUS Status = STATUS_SUCCESS;
 
-        PVOID  Buffer    = nullptr;
-        SIZE_T LoopCount = 0u;
-
-        Buffer = ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-            DEFAULT_BUFFER_LEN, POOL_TAG);
-        if (Buffer == nullptr)
-        {
-            Status = STATUS_INSUFFICIENT_RESOURCES;
-            return Status;
-        }
+        PVOID Buffer = nullptr;
 
         do
         {
             SIZE_T Bytes = 0u;
+            INT    SocketType = 0;
 
-            RtlStringCbPrintfA(static_cast<LPSTR>(Buffer), DEFAULT_BUFFER_LEN,
-                "This is a small test message [number %Id].",
-                LoopCount++);
-
-            Status = WSKSend(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0);
+            Bytes  = sizeof SocketType;
+            Status = WSKGetSocketOpt(Socket, SOL_SOCKET, SO_TYPE, &SocketType, &Bytes);
             if (!NT_SUCCESS(Status))
             {
+                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                    "[WSK] [Client] WSKGetSocketOpt(SO_TYPE) failed: 0x%08X.\n",
+                    Status);
+
                 break;
             }
 
-            DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                "[WSK] [Client] Wrote %Id bytes.\n",
-                Bytes);
-
-            Status = WSKReceive(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0);
-            if (!NT_SUCCESS(Status))
+            Buffer = ExAllocatePoolZero(PagedPool, DEFAULT_BUFFER_LEN, POOL_TAG);
+            if (Buffer == nullptr)
             {
+                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                    "[WSK] [Client] ExAllocatePoolWithTag(Buffer) failed.\n");
+
+                Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
             }
 
-            if (Bytes == 0)
+            SIZE_T BufferLength = DEFAULT_BUFFER_LEN;
+            SIZE_T LoopCount = 0u;
+
+            do 
             {
-                break;
-            }
+                RtlStringCbPrintfA(static_cast<LPSTR>(Buffer), DEFAULT_BUFFER_LEN,
+                    "This is a small test message [number %Id]",
+                    LoopCount++);
 
-            DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                "[WSK] [Client] Read %Id bytes, data [%s] from server.\n",
-                Bytes, static_cast<LPCSTR>(Buffer));
+                RtlStringCbLengthA(static_cast<LPSTR>(Buffer), DEFAULT_BUFFER_LEN, &BufferLength);
 
-        } while (true);
+                // TCP
+                if (SocketType == SOCK_STREAM)
+                {
+                    Status = WSKSend(Socket, Buffer, BufferLength, &Bytes, 0);
+                    if (!NT_SUCCESS(Status))
+                    {
+                        DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                            "[WSK] [Client] WSKSend failed: 0x%08X.\n",
+                            Status);
+
+                        break;
+                    }
+
+                    DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                        "[WSK] [Client] Wrote %Id bytes.\n",
+                        Bytes);
+
+                    Status = WSKReceive(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0);
+                    if (!NT_SUCCESS(Status))
+                    {
+                        DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                            "[WSK] [Client] WSKReceive failed: 0x%08X.\n",
+                            Status);
+
+                        break;
+                    }
+
+                    if (Bytes == 0)
+                    {
+                        break;
+                    }
+
+                    DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                        "[WSK] [Client] Read %Id bytes, data [%s] from server.\n",
+                        Bytes, static_cast<LPCSTR>(Buffer));
+                }
+
+                // UDP
+                if (SocketType == SOCK_DGRAM)
+                {
+                    Status = WSKSendTo(Socket, Buffer, BufferLength, &Bytes, 0, nullptr, 0);
+                    if (!NT_SUCCESS(Status))
+                    {
+                        DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                            "[WSK] [Client] WSKSendTo failed: 0x%08X.\n",
+                            Status);
+
+                        break;
+                    }
+
+                    DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                        "[WSK] [Client] Wrote %Id bytes.\n",
+                        Bytes);
+
+                    Status = WSKReceiveFrom(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0, nullptr, 0);
+                    if (!NT_SUCCESS(Status))
+                    {
+                        DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                            "[WSK] [Client] WSKReceiveFrom failed: 0x%08X.\n",
+                            Status);
+
+                        break;
+                    }
+
+                    if (Bytes == 0)
+                    {
+                        break;
+                    }
+
+                    DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                        "[WSK] [Client] Read %Id bytes, data [%s] from server.\n",
+                        Bytes, static_cast<LPCSTR>(Buffer));
+                }
+
+            } while (true);
+
+        } while (false);
 
         if (Buffer)
         {
@@ -606,10 +670,8 @@ namespace unittest
 
         do
         {
-            HostName = (LPWSTR)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                NI_MAXHOST * sizeof WCHAR, POOL_TAG);
-            PortName = (LPWSTR)ExAllocatePoolWithTag(static_cast<POOL_TYPE>(static_cast<int>(PagedPool | POOL_ZERO_ALLOCATION)),
-                NI_MAXSERV * sizeof WCHAR, POOL_TAG);
+            HostName = (LPWSTR)ExAllocatePoolZero(PagedPool, NI_MAXHOST * sizeof WCHAR, POOL_TAG);
+            PortName = (LPWSTR)ExAllocatePoolZero(PagedPool, NI_MAXSERV * sizeof WCHAR, POOL_TAG);
 
             if (HostName == nullptr || PortName == nullptr)
             {
@@ -675,14 +737,22 @@ namespace unittest
                     "[WSK] [Client] Client attempting connection to: %ls port: %ls.\n",
                     HostName, PortName);
 
-                Status = WSKConnect(ClientSocket, Addr->ai_addr, Addr->ai_addrlen);
-                if (NT_SUCCESS(Status))
+                if (Addr->ai_socktype == SOCK_STREAM)
                 {
-                    break;
+                    Status = WSKConnect(ClientSocket, Addr->ai_addr, Addr->ai_addrlen);
                 }
 
-                WSKCloseSocket(ClientSocket);
-                ClientSocket = WSK_INVALID_SOCKET;
+                if (Addr->ai_socktype == SOCK_DGRAM)
+                {
+                    Status = WSKIoctl(ClientSocket, SIO_WSK_SET_SENDTO_ADDRESS,
+                        Addr->ai_addr, Addr->ai_addrlen, nullptr, 0, nullptr);
+                }
+
+                if (!NT_SUCCESS(Status))
+                {
+                    WSKCloseSocket(ClientSocket);
+                    ClientSocket = WSK_INVALID_SOCKET;
+                }
             }
 
             if (!NT_SUCCESS(Status))
