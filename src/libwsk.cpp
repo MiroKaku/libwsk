@@ -961,7 +961,8 @@ NTSTATUS WSKAPI WSKSendUnsafe(
     _In_ PVOID          Buffer,
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesSent,
-    _In_ ULONG          Flags
+    _In_ ULONG          Flags,
+    _In_opt_ UINT32     TimeoutMilliseconds
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1022,7 +1023,14 @@ NTSTATUS WSKAPI WSKSendUnsafe(
             LARGE_INTEGER Timeout{};
 
             Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
-                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+                FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
+
+            if (Status == STATUS_TIMEOUT)
+            {
+                IoCancelIrp(WSKContext->Irp);
+                KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+            }
+
             if (Status == STATUS_SUCCESS)
             {
                 Status = WSKContext->Irp->IoStatus.Status;
@@ -1144,7 +1152,8 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
     _In_ PVOID          Buffer,
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
-    _In_ ULONG          Flags
+    _In_ ULONG          Flags,
+    _In_opt_ UINT32     TimeoutMilliseconds
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1205,7 +1214,14 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
             LARGE_INTEGER Timeout{};
 
             Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
-                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+                FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
+
+            if (Status == STATUS_TIMEOUT)
+            {
+                IoCancelIrp(WSKContext->Irp);
+                KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+            }
+
             if (Status == STATUS_SUCCESS)
             {
                 Status = WSKContext->Irp->IoStatus.Status;
@@ -1232,7 +1248,8 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
     _Reserved_ ULONG    Flags,
     _Out_opt_ PSOCKADDR RemoteAddress,
-    _In_ SIZE_T         RemoteAddressLength
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_opt_ UINT32     TimeoutMilliseconds
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1306,7 +1323,14 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
             LARGE_INTEGER Timeout{};
 
             Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
-                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+                FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
+
+            if (Status == STATUS_TIMEOUT)
+            {
+                IoCancelIrp(WSKContext->Irp);
+                KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+            }
+
             if (Status == STATUS_SUCCESS)
             {
                 Status = WSKContext->Irp->IoStatus.Status;
@@ -2181,7 +2205,8 @@ NTSTATUS WSKAPI WSKSend(
     _In_ PVOID  Buffer,
     _In_ SIZE_T BufferLength,
     _Out_opt_ SIZE_T* NumberOfBytesSent,
-    _In_ ULONG  Flags
+    _In_ ULONG  Flags,
+    _In_opt_ UINT32 TimeoutMilliseconds
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -2215,7 +2240,8 @@ NTSTATUS WSKAPI WSKSend(
             break;
         }
 
-        Status = WSKSendUnsafe(Socket_, SocketType, Buffer, BufferLength, NumberOfBytesSent, Flags);
+        Status = WSKSendUnsafe(Socket_, SocketType, Buffer, BufferLength,
+            NumberOfBytesSent, Flags, TimeoutMilliseconds);
 
     } while (false);
 
@@ -2276,7 +2302,8 @@ NTSTATUS WSKAPI WSKReceive(
     _In_ PVOID          Buffer,
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
-    _In_ ULONG          Flags
+    _In_ ULONG          Flags,
+    _In_opt_ UINT32     TimeoutMilliseconds
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -2310,7 +2337,8 @@ NTSTATUS WSKAPI WSKReceive(
             break;
         }
 
-        Status = WSKReceiveUnsafe(Socket_, SocketType, Buffer, BufferLength, NumberOfBytesRecvd, Flags);
+        Status = WSKReceiveUnsafe(Socket_, SocketType, Buffer, BufferLength,
+            NumberOfBytesRecvd, Flags, TimeoutMilliseconds);
 
     } while (false);
 
@@ -2324,7 +2352,8 @@ NTSTATUS WSKAPI WSKReceiveFrom(
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
     _Reserved_ ULONG    Flags,
     _Out_opt_ PSOCKADDR RemoteAddress,
-    _In_ SIZE_T         RemoteAddressLength
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_opt_ UINT32     TimeoutMilliseconds
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -2359,7 +2388,7 @@ NTSTATUS WSKAPI WSKReceiveFrom(
         }
 
         Status = WSKReceiveFromUnsafe(Socket_, SocketType, Buffer, BufferLength, NumberOfBytesRecvd,
-            Flags, RemoteAddress, RemoteAddressLength);
+            Flags, RemoteAddress, RemoteAddressLength, TimeoutMilliseconds);
 
     } while (false);
 

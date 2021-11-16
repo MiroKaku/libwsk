@@ -144,7 +144,8 @@ NTSTATUS WSKAPI WSKSend(
     _In_ PVOID          Buffer,
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesSent,
-    _In_ ULONG          dwFlags
+    _In_ ULONG          Flags,
+    _In_opt_ UINT32     TimeoutMilliseconds
 );
 
 NTSTATUS WSKAPI WSKSendTo(
@@ -162,7 +163,8 @@ NTSTATUS WSKAPI WSKReceive(
     _In_ PVOID          Buffer,
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
-    _In_ ULONG          Flags
+    _In_ ULONG          Flags,
+    _In_opt_ UINT32     TimeoutMilliseconds
 );
 
 NTSTATUS WSKAPI WSKReceiveFrom(
@@ -172,5 +174,6 @@ NTSTATUS WSKAPI WSKReceiveFrom(
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
     _Reserved_ ULONG    Flags,
     _Out_opt_ PSOCKADDR RemoteAddress,
-    _In_ SIZE_T         RemoteAddressLength
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_opt_ UINT32     TimeoutMilliseconds
 );
