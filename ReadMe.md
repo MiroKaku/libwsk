@@ -21,20 +21,32 @@ IDE：Visual Studio 2019 or higher
 
 ## Supported progress
 
-| BSD sockets   | WSA (Windows Sockets API) | WSK (Windows Sockets Kernel) | State  
-| ---           | ---                       | ---                          | :----: 
-| -             | WSAStartup                | WSKStartup                   |   √    
-| -             | WSACleanup                | WSKCleanup                   |   √    
-| socket        | WSASocket                 | WSKSocket                    |   -    
-| bind          | -                         | WSKBind                      |   -    
-| listen        | -                         | WSKListen                    |   -    
-| connect       | WSAConnect                | WSKConnect                   |   -    
-| accept        | WSAAccept                 | WSKAccept                    |   -    
-| send          | WSASend                   | WSKSend                      |   -    
-| recv          | WSARecv                   | WSKRecv                      |   -    
-| sendto        | WSASendTo                 | WSKSendTo                    |   -    
-| recvfrom      | WSARecvFrom               | WSKRecvFrom                  |   -    
-| ...           | ...                       | ...                          |   -    
+| BSD sockets   | WSA (Windows Sockets API)    | WSK (Windows Sockets Kernel) | State  
+| ---           | ---                          | ---                          | :----: 
+| -             | ~~WSAStartup~~               | WSKStartup                   |   √    
+| -             | ~~WSACleanup~~               | WSKCleanup                   |   √    
+| socket        | ~~WSASocket~~                | WSKSocket                    |   √    
+| closesocket   | ~~WSASocket~~                | WSKCloseSocket               |   √    
+| bind          | -                            | WSKBind                      |   √    
+| listen        | -                            | WSKListen                    |   √    
+| connect       | ~~WSAConnect~~               | WSKConnect                   |   √    
+| shutdown      | ~~WSA[Recv/Send]Disconnect~~ | WSKDisconnect                |   √    
+| accept        | ~~WSAAccept~~                | WSKAccept                    |   √    
+| send          | ~~WSASend~~                  | WSKSend                      |   √    
+| recv          | ~~WSARecv~~                  | WSKRecv                      |   √    
+| sendto        | ~~WSASendTo~~                | WSKSendTo                    |   √    
+| recvfrom      | ~~WSARecvFrom~~              | WSKRecvFrom                  |   √    
+| ioctlsocket   | ~~WSAIoctl~~                 | WSKIoctl                     |   √    
+| setsockopt    | -                            | WSKSetSocketOpt              |   √    
+| getsockopt    | -                            | WSKGetSocketOpt              |   √    
+| getaddrinfo   | ~~GetAddrInfoEx~~            | WSKGetAddrInfo               |   √    
+| freeaddrinfo  | ~~FreeAddrInfoEx~~           | WSKFreeAddrInfo              |   √    
+| getnameinfo   | ~~GetNameInfo~~              | WSKGetNameInfo               |   √    
+| inet_ntoa     | ~~WSAAddressToString~~       | WSKAddressToString           |   √    
+| inet_addr     | ~~WSAStringToAddress~~       | WSKStringToAddress           |   √    
+| -             | ~~WSACreateEvent~~           | WSKCreateEvent               |   √    
+| -             | ~~WSAGetOverlappedResult~~   | WSKGetOverlappedResult       |   √    
+| ...           | ...                          | ...                          |   -    
 
 ## Reference
 

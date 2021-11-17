@@ -177,7 +177,7 @@ namespace UnitTest
                     }
                     else
                     {
-                        Status = WSKReceive(SocketClient, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0, WSK_INFINITE_WAIT);
+                        Status = WSKReceive(SocketClient, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0, nullptr, nullptr);
                         if (!NT_SUCCESS(Status))
                         {
                             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -195,10 +195,10 @@ namespace UnitTest
                         else
                         {
                             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                                "[WSK] [Server] Read %Id bytes.\n",
+                                "[WSK] [Server] Read  %Id bytes.\n",
                                 Bytes);
 
-                            Status = WSKSend(SocketClient, Buffer, Bytes, &Bytes, 0, WSK_INFINITE_WAIT);
+                            Status = WSKSend(SocketClient, Buffer, Bytes, &Bytes, 0, nullptr, nullptr);
                             if (!NT_SUCCESS(Status))
                             {
                                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -219,7 +219,7 @@ namespace UnitTest
                 if (SocketType == SOCK_DGRAM)
                 {
                     Status = WSKReceiveFrom(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0,
-                        (SOCKADDR*)&FromAddress, sizeof FromAddress, WSK_INFINITE_WAIT);
+                        (SOCKADDR*)&FromAddress, sizeof FromAddress, nullptr, nullptr);
                     if (!NT_SUCCESS(Status))
                     {
                         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -241,11 +241,11 @@ namespace UnitTest
                     }
 
                     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, 
-                        "[WSK] [Server] Read %Id bytes from host %ls and port %ls.\n",
+                        "[WSK] [Server] Read  %Id bytes from host %ls and port %ls.\n",
                         Bytes, HostName, PortName);
 
                     Status = WSKSendTo(Socket, Buffer, Bytes, &Bytes, 0,
-                        (SOCKADDR*)&FromAddress, sizeof FromAddress);
+                        (SOCKADDR*)&FromAddress, sizeof FromAddress, nullptr, nullptr);
                     if (!NT_SUCCESS(Status))
                     {
                         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -256,7 +256,7 @@ namespace UnitTest
                     }
 
                     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, 
-                        "[WSK] [Server] Sent %Id bytes to host %ls and port %ls.\n",
+                        "[WSK] [Server] Wrote %Id bytes to host %ls and port %ls.\n",
                         Bytes, HostName, PortName);
                 }
 
@@ -321,7 +321,7 @@ namespace UnitTest
             Hints.ai_flags    = ((NodeName == NULL) ? AI_PASSIVE : 0);
 
             Status = WSKGetAddrInfo(NodeName, ServiceName, NS_ALL, nullptr,
-                &Hints, &AddrInfo, WSK_INFINITE_WAIT, nullptr);
+                &Hints, &AddrInfo, WSK_INFINITE_WAIT, nullptr, nullptr);
             if (!NT_SUCCESS(Status))
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, 
@@ -548,6 +548,18 @@ namespace UnitTest
                 break;
             }
 
+            ULONG RecvTimeout = 100u; // ms
+            Bytes  = sizeof RecvTimeout;
+            Status = WSKSetSocketOpt(Socket, SOL_SOCKET, SO_RCVTIMEO, &RecvTimeout, Bytes);
+            if (!NT_SUCCESS(Status))
+            {
+                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                    "[WSK] [Client] WSKSetSocketOpt(SO_RCVTIMEO) failed: 0x%08X.\n",
+                    Status);
+
+                break;
+            }
+
             Buffer = ExAllocatePoolZero(PagedPool, DEFAULT_BUFFER_LEN, POOL_TAG);
             if (Buffer == nullptr)
             {
@@ -572,7 +584,7 @@ namespace UnitTest
                 // TCP
                 if (SocketType == SOCK_STREAM)
                 {
-                    Status = WSKSend(Socket, Buffer, BufferLength, &Bytes, 0, WSK_INFINITE_WAIT);
+                    Status = WSKSend(Socket, Buffer, BufferLength, &Bytes, 0, nullptr, nullptr);
                     if (!NT_SUCCESS(Status))
                     {
                         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -586,7 +598,7 @@ namespace UnitTest
                         "[WSK] [Client] Wrote %Id bytes.\n",
                         Bytes);
 
-                    Status = WSKReceive(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0, 500);
+                    Status = WSKReceive(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0, nullptr, nullptr);
                     if (!NT_SUCCESS(Status))
                     {
                         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -602,14 +614,14 @@ namespace UnitTest
                     }
 
                     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                        "[WSK] [Client] Read %Id bytes, data [%s] from server.\n",
+                        "[WSK] [Client] Read  %Id bytes, data [%s] from server.\n",
                         Bytes, static_cast<LPCSTR>(Buffer));
                 }
 
                 // UDP
                 if (SocketType == SOCK_DGRAM)
                 {
-                    Status = WSKSendTo(Socket, Buffer, BufferLength, &Bytes, 0, nullptr, 0);
+                    Status = WSKSendTo(Socket, Buffer, BufferLength, &Bytes, 0, nullptr, 0, nullptr, nullptr);
                     if (!NT_SUCCESS(Status))
                     {
                         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -623,7 +635,7 @@ namespace UnitTest
                         "[WSK] [Client] Wrote %Id bytes.\n",
                         Bytes);
 
-                    Status = WSKReceiveFrom(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0, nullptr, 0, 500);
+                    Status = WSKReceiveFrom(Socket, Buffer, DEFAULT_BUFFER_LEN, &Bytes, 0, nullptr, 0, nullptr, nullptr);
                     if (!NT_SUCCESS(Status))
                     {
                         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -639,7 +651,7 @@ namespace UnitTest
                     }
 
                     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                        "[WSK] [Client] Read %Id bytes, data [%s] from server.\n",
+                        "[WSK] [Client] Read  %Id bytes, data [%s] from server.\n",
                         Bytes, static_cast<LPCSTR>(Buffer));
                 }
 
@@ -688,7 +700,7 @@ namespace UnitTest
             Hints.ai_protocol = ((SocketType == SOCK_DGRAM) ? IPPROTO_UDP : IPPROTO_TCP);
 
             Status = WSKGetAddrInfo(NodeName, ServiceName, NS_ALL, nullptr,
-                &Hints, &AddrInfo, WSK_INFINITE_WAIT, nullptr);
+                &Hints, &AddrInfo, WSK_INFINITE_WAIT, nullptr, nullptr);
             if (!NT_SUCCESS(Status))
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -745,13 +757,12 @@ namespace UnitTest
                 if (Addr->ai_socktype == SOCK_DGRAM)
                 {
                     Status = WSKIoctl(ClientSocket, SIO_WSK_SET_SENDTO_ADDRESS,
-                        Addr->ai_addr, Addr->ai_addrlen, nullptr, 0, nullptr);
+                        Addr->ai_addr, Addr->ai_addrlen, nullptr, 0, nullptr, nullptr, nullptr);
                 }
 
-                if (!NT_SUCCESS(Status))
+                if (NT_SUCCESS(Status))
                 {
-                    WSKCloseSocket(ClientSocket);
-                    ClientSocket = WSK_INVALID_SOCKET;
+                    break;
                 }
             }
 

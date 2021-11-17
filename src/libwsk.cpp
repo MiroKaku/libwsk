@@ -7,7 +7,7 @@
 //////////////////////////////////////////////////////////////////////////
 // Private Struct
 
-using WSK_COMPLETION_ROUTINE = VOID(NTAPI*)(
+using WSK_COMPLETION_ROUTINE = VOID(WSKAPI*)(
     _In_ NTSTATUS  Status,
     _In_ ULONG_PTR Bytes,
     _In_ PVOID     Context
@@ -18,7 +18,10 @@ struct WSK_CONTEXT_IRP
     PIRP    Irp;
     KEVENT  Event;
     PVOID   Context;
-    PVOID   CompletionRoutine; // WSK_COMPLETION_ROUTINE
+    union {
+        PVOID   CompletionRoutine;  // WSK_COMPLETION_ROUTINE
+        PVOID   Pointer;            // Other
+    } DUMMYUNIONNAME;
 
     WSK_BUF InputBuffer;
     WSK_BUF OutputBuffer;
@@ -79,8 +82,8 @@ NTSTATUS WSKAPI WSKLockBuffer(
 
         __try
         {
-            if ((WSKBuffer->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA) != MDL_MAPPED_TO_SYSTEM_VA &&
-                (WSKBuffer->Mdl->MdlFlags & MDL_PAGES_LOCKED) != MDL_PAGES_LOCKED &&
+            if ((WSKBuffer->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA)     != MDL_MAPPED_TO_SYSTEM_VA &&
+                (WSKBuffer->Mdl->MdlFlags & MDL_PAGES_LOCKED)            != MDL_PAGES_LOCKED        &&
                 (WSKBuffer->Mdl->MdlFlags & MDL_SOURCE_IS_NONPAGED_POOL) != MDL_SOURCE_IS_NONPAGED_POOL)
             {
                 MmProbeAndLockPages(WSKBuffer->Mdl, KernelMode, ReadOnly ? IoReadAccess : IoWriteAccess);
@@ -150,8 +153,8 @@ VOID WSKAPI WSKUnlockBuffer(
     {
         if (WSKBuffer->Mdl)
         {
-            if ((WSKBuffer->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA) != MDL_MAPPED_TO_SYSTEM_VA &&
-                (WSKBuffer->Mdl->MdlFlags & MDL_PAGES_LOCKED) != MDL_PAGES_LOCKED &&
+            if ((WSKBuffer->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA)     != MDL_MAPPED_TO_SYSTEM_VA &&
+                (WSKBuffer->Mdl->MdlFlags & MDL_PAGES_LOCKED)            != MDL_PAGES_LOCKED        &&
                 (WSKBuffer->Mdl->MdlFlags & MDL_SOURCE_IS_NONPAGED_POOL) != MDL_SOURCE_IS_NONPAGED_POOL)
             {
                 MmUnlockPages(WSKBuffer->Mdl);
@@ -191,8 +194,8 @@ WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
     _In_opt_ PVOID CompletionRoutine,
     _In_opt_ PVOID Context,
     _In_opt_ BOOLEAN OnlyReadInputBuffer = true,
-    _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer = nullptr,
-    _In_ SIZE_T         InputSize = 0,
+    _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer  = nullptr,
+    _In_ SIZE_T         InputSize  = 0,
     _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer = nullptr,
     _In_ SIZE_T         OutputSize = 0
 )
@@ -231,6 +234,11 @@ WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
             }
         }
 
+        if (Context == nullptr)
+        {
+            WSKCreateEvent(&WSKContext->Event);
+        }
+
         WSKContext->Irp = IoAllocateIrp(1, FALSE);
         if (WSKContext->Irp == nullptr)
         {
@@ -238,7 +246,6 @@ WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
             break;
         }
 
-        KeInitializeEvent(&WSKContext->Event, SynchronizationEvent, FALSE);
         IoSetCompletionRoutine(WSKContext->Irp, WSKCompletionRoutine, WSKContext, TRUE, TRUE, TRUE);
 
     } while (false);
@@ -264,20 +271,32 @@ NTSTATUS WSKCompletionRoutine(
     UNREFERENCED_PARAMETER(DeviceObject);
 
     auto WSKContext = static_cast<WSK_CONTEXT_IRP*>(Context);
-
-    if (WSKContext->CompletionRoutine)
+    if (WSKContext == nullptr)
     {
+        __debugbreak();
+        return STATUS_INVALID_ADDRESS;
+    }
+
+    auto Overlapped = static_cast<WSKOVERLAPPED*>(WSKContext->Context);
+    if (Overlapped)
+    {
+        Overlapped->Internal     = Irp->IoStatus.Status;
+        Overlapped->InternalHigh = Irp->IoStatus.Information;
+
         auto Routine = static_cast<WSK_COMPLETION_ROUTINE>(WSKContext->CompletionRoutine);
-
-        __try
+        if (Routine)
         {
-            Routine(Irp->IoStatus.Status, Irp->IoStatus.Information, WSKContext->Context);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            __nop();
+            __try
+            {
+                Routine(Irp->IoStatus.Status, Irp->IoStatus.Information, WSKContext->Context);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                __nop();
+            }
         }
 
+        KeSetEvent(&Overlapped->Event, IO_NO_INCREMENT, FALSE);
         WSKFreeContextIRP(WSKContext);
     }
     else
@@ -288,6 +307,8 @@ NTSTATUS WSKCompletionRoutine(
     return STATUS_MORE_PROCESSING_REQUIRED;
 }
 
+static WSKOVERLAPPED WSKEmptyOverlapped;
+
 VOID NTAPI WSKEmptyAsync(
     _In_ NTSTATUS  Status,
     _In_ ULONG_PTR Bytes,
@@ -296,7 +317,16 @@ VOID NTAPI WSKEmptyAsync(
 {
     UNREFERENCED_PARAMETER(Status);
     UNREFERENCED_PARAMETER(Bytes);
-    UNREFERENCED_PARAMETER(Context);
+
+    auto Overlapped = static_cast<WSKOVERLAPPED*>(Context);
+    if (Overlapped != nullptr)
+    {
+        __debugbreak();
+    }
+    else
+    {
+        KeResetEvent(&Overlapped->Event);
+    }
 }
 
 NTSTATUS WSKAPI WSKSocketUnsafe(
@@ -429,7 +459,9 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
     _In_ SIZE_T         InputSize,
     _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
     _In_ SIZE_T         OutputSize,
-    _Out_opt_ SIZE_T*   OutputSizeReturned
+    _Out_opt_ SIZE_T*   OutputSizeReturned,
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -451,7 +483,7 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
 
         if (RequestType == WskGetOption && OptionLevel == SOL_SOCKET && ControlCode == SO_TYPE)
         {
-            if (OutputSize != sizeof(int))
+            if (OutputSize != sizeof(int) || OutputBuffer == nullptr)
             {
                 Status = STATUS_INVALID_PARAMETER;
                 break;
@@ -505,7 +537,7 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
             }
         }
 
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -526,19 +558,22 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
             OutputSizeReturned,
             WSKContext->Irp);
 
-        if (Status == STATUS_PENDING)
+        if (Overlapped == nullptr)
         {
-            LARGE_INTEGER Timeout{};
-
-            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
-                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
-            if (Status == STATUS_SUCCESS)
+            if (Status == STATUS_PENDING)
             {
-                Status = WSKContext->Irp->IoStatus.Status;
-            }
-        }
+                LARGE_INTEGER Timeout{};
 
-        WSKFreeContextIRP(WSKContext);
+                Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                    FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+                if (Status == STATUS_SUCCESS)
+                {
+                    Status = WSKContext->Irp->IoStatus.Status;
+                }
+            }
+
+            WSKFreeContextIRP(WSKContext);
+        }
 
     } while (false);
 
@@ -647,6 +682,8 @@ NTSTATUS WSKAPI WSKAcceptUnsafe(
 
     do
     {
+        *SocketClient = nullptr;
+
         if (!InterlockedCompareExchange(&_Initialized, true, true))
         {
             Status = STATUS_NDIS_ADAPTER_NOT_READY;
@@ -962,7 +999,9 @@ NTSTATUS WSKAPI WSKSendUnsafe(
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesSent,
     _In_ ULONG          Flags,
-    _In_opt_ UINT32     TimeoutMilliseconds
+    _In_opt_ ULONG     TimeoutMilliseconds,
+    _In_opt_ WSKOVERLAPPED* Overlapped,
+    _In_opt_ LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1005,7 +1044,7 @@ NTSTATUS WSKAPI WSKSendUnsafe(
             break;
         }
 
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr, true, Buffer, BufferLength);
+        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped, true, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1018,31 +1057,34 @@ NTSTATUS WSKAPI WSKSendUnsafe(
             Flags,
             WSKContext->Irp);
 
-        if (Status == STATUS_PENDING)
+        if (Overlapped == nullptr)
         {
-            LARGE_INTEGER Timeout{};
-
-            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
-                FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
-
-            if (Status == STATUS_TIMEOUT)
+            if (Status == STATUS_PENDING)
             {
-                IoCancelIrp(WSKContext->Irp);
-                KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+                LARGE_INTEGER Timeout{};
+
+                Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                    FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
+
+                if (Status == STATUS_TIMEOUT)
+                {
+                    IoCancelIrp(WSKContext->Irp);
+                    KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+                }
+
+                if (Status == STATUS_SUCCESS)
+                {
+                    Status = WSKContext->Irp->IoStatus.Status;
+                }
             }
 
-            if (Status == STATUS_SUCCESS)
+            if (NumberOfBytesSent)
             {
-                Status = WSKContext->Irp->IoStatus.Status;
+                *NumberOfBytesSent = WSKContext->Irp->IoStatus.Information;
             }
-        }
 
-        if (NumberOfBytesSent)
-        {
-            *NumberOfBytesSent = WSKContext->Irp->IoStatus.Information;
+            WSKFreeContextIRP(WSKContext);
         }
-
-        WSKFreeContextIRP(WSKContext);
 
     } while (false);
 
@@ -1057,7 +1099,10 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
     _Out_opt_ SIZE_T*   NumberOfBytesSent,
     _Reserved_ ULONG    Flags,
     _In_opt_ PSOCKADDR  RemoteAddress,
-    _In_ SIZE_T         RemoteAddressLength
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_opt_ ULONG      /*TimeoutMilliseconds*/,
+    _In_opt_ WSKOVERLAPPED* Overlapped,
+    _In_opt_ LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1113,7 +1158,12 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
             break;
         }
 
-        WSKContext = WSKAllocContextIRP(static_cast<void*>(&WSKEmptyAsync), nullptr, true, Buffer, BufferLength);
+        if (Overlapped == nullptr)
+        {
+            Overlapped = &WSKEmptyOverlapped;
+        }
+
+        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped, true, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1153,7 +1203,9 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
     _In_ ULONG          Flags,
-    _In_opt_ UINT32     TimeoutMilliseconds
+    _In_opt_ ULONG      TimeoutMilliseconds,
+    _In_opt_ WSKOVERLAPPED* Overlapped,
+    _In_opt_ LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1196,7 +1248,7 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
             break;
         }
 
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr, true, nullptr, 0, Buffer, BufferLength);
+        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped, true, nullptr, 0, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1209,31 +1261,34 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
             Flags,
             WSKContext->Irp);
 
-        if (Status == STATUS_PENDING)
+        if (Overlapped == nullptr)
         {
-            LARGE_INTEGER Timeout{};
-
-            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
-                FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
-
-            if (Status == STATUS_TIMEOUT)
+            if (Status == STATUS_PENDING)
             {
-                IoCancelIrp(WSKContext->Irp);
-                KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+                LARGE_INTEGER Timeout{};
+
+                Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                    FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
+
+                if (Status == STATUS_TIMEOUT)
+                {
+                    IoCancelIrp(WSKContext->Irp);
+                    KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+                }
+
+                if (Status == STATUS_SUCCESS)
+                {
+                    Status = WSKContext->Irp->IoStatus.Status;
+                }
             }
 
-            if (Status == STATUS_SUCCESS)
+            if (NumberOfBytesRecvd)
             {
-                Status = WSKContext->Irp->IoStatus.Status;
+                *NumberOfBytesRecvd = WSKContext->Irp->IoStatus.Information;
             }
-        }
 
-        if (NumberOfBytesRecvd)
-        {
-            *NumberOfBytesRecvd = WSKContext->Irp->IoStatus.Information;
+            WSKFreeContextIRP(WSKContext);
         }
-
-        WSKFreeContextIRP(WSKContext);
 
     } while (false);
 
@@ -1249,7 +1304,9 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
     _Reserved_ ULONG    Flags,
     _Out_opt_ PSOCKADDR RemoteAddress,
     _In_ SIZE_T         RemoteAddressLength,
-    _In_opt_ UINT32     TimeoutMilliseconds
+    _In_opt_ ULONG      TimeoutMilliseconds,
+    _In_opt_ WSKOVERLAPPED* Overlapped,
+    _In_opt_ LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1298,7 +1355,7 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
             break;
         }
 
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr, true, nullptr, 0, Buffer, BufferLength);
+        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped, true, nullptr, 0, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1318,31 +1375,34 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
             &ControlFlags,
             WSKContext->Irp);
 
-        if (Status == STATUS_PENDING)
+        if (Overlapped == nullptr)
         {
-            LARGE_INTEGER Timeout{};
-
-            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
-                FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
-
-            if (Status == STATUS_TIMEOUT)
+            if (Status == STATUS_PENDING)
             {
-                IoCancelIrp(WSKContext->Irp);
-                KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+                LARGE_INTEGER Timeout{};
+
+                Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                    FALSE, WSKTimeoutToLargeInteger(TimeoutMilliseconds, &Timeout));
+
+                if (Status == STATUS_TIMEOUT)
+                {
+                    IoCancelIrp(WSKContext->Irp);
+                    KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, nullptr);
+                }
+
+                if (Status == STATUS_SUCCESS)
+                {
+                    Status = WSKContext->Irp->IoStatus.Status;
+                }
             }
 
-            if (Status == STATUS_SUCCESS)
+            if (NumberOfBytesRecvd)
             {
-                Status = WSKContext->Irp->IoStatus.Status;
+                *NumberOfBytesRecvd = WSKContext->Irp->IoStatus.Information;
             }
-        }
 
-        if (NumberOfBytesRecvd)
-        {
-            *NumberOfBytesRecvd = WSKContext->Irp->IoStatus.Information;
+            WSKFreeContextIRP(WSKContext);
         }
-
-        WSKFreeContextIRP(WSKContext);
 
     } while (false);
 
@@ -1406,6 +1466,8 @@ NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
             break;
         }
 
+        WSKCreateEvent(&WSKEmptyOverlapped.Event);
+
         InterlockedCompareExchange(&_Initialized, true, false);
 
     } while (false);
@@ -1426,15 +1488,72 @@ VOID WSKAPI WSKCleanup()
     }
 }
 
+VOID WSKAPI WSKCreateEvent(_Out_ KEVENT* Event)
+{
+    KeInitializeEvent(Event, NotificationEvent, FALSE);
+}
+
+NTSTATUS WSKAPI WSKGetOverlappedResult(
+    _In_  SOCKET         Socket,
+    _In_  WSKOVERLAPPED* Overlapped,
+    _Out_opt_ SIZE_T*    TransferBytes,
+    _In_  BOOLEAN        Wait
+)
+{
+    UNREFERENCED_PARAMETER(Socket);
+
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do 
+    {
+        if (TransferBytes)
+        {
+            *TransferBytes = 0u;
+        }
+
+        if (Overlapped->Internal == STATUS_PENDING)
+        {
+            if (!Wait)
+            {
+                Status = STATUS_TIMEOUT;
+                break;
+            }
+
+            Status = KeWaitForSingleObject(&Overlapped->Event, Executive, KernelMode, FALSE, nullptr);
+            if (!NT_SUCCESS(Status))
+            {
+                break;
+            }
+        }
+
+        if (TransferBytes)
+        {
+            /* Return bytes transferred */
+            *TransferBytes = Overlapped->InternalHigh;
+        }
+
+        /* Check for failure during I/O */
+        if (!NT_SUCCESS(Overlapped->Internal))
+        {
+            /* Set the error and fail */
+            Status = static_cast<NTSTATUS>(Overlapped->Internal);
+        }
+
+    } while (false);
+
+    return Status;
+}
+
 NTSTATUS WSKAPI WSKGetAddrInfo(
     _In_opt_ LPCWSTR        NodeName,
     _In_opt_ LPCWSTR        ServiceName,
     _In_     UINT32         Namespace,
     _In_opt_ GUID*          Provider,
     _In_opt_ PADDRINFOEXW   Hints,
-    _Outptr_ PADDRINFOEXW*  Result,
+    _Outptr_result_maybenull_ PADDRINFOEXW* Result,
     _In_opt_ UINT32         TimeoutMilliseconds,
-    _In_opt_ LPLOOKUPSERVICE_COMPLETION_ROUTINE CompletionRoutine
+    _In_opt_ WSKOVERLAPPED* Overlapped,
+    _In_opt_ LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1450,17 +1569,18 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
             break;
         }
 
-        if (TimeoutMilliseconds != WSK_NO_WAIT && CompletionRoutine != nullptr)
-        {
-            Status = STATUS_INVALID_PARAMETER;
-            break;
-        }
-
-        WSKContext = WSKAllocContextIRP(CompletionRoutine, nullptr);
+        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             break;
+        }
+
+        // The Context is query result. if block mode.
+        auto QueryResult = reinterpret_cast<PADDRINFOEXW*>(&WSKContext->Pointer);
+        if (Overlapped != nullptr)
+        {
+            QueryResult = reinterpret_cast<PADDRINFOEXW*>(&Overlapped->Pointer);
         }
 
         UNICODE_STRING NodeNameS{};
@@ -1476,12 +1596,12 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
             Namespace,
             Provider,
             Hints,
-            reinterpret_cast<PADDRINFOEXW*>(&WSKContext->Context), // The Context is query result.
+            QueryResult,
             nullptr,
             nullptr,
             WSKContext->Irp);
 
-        if (CompletionRoutine == nullptr)
+        if (Overlapped == nullptr)
         {
             if (Status == STATUS_PENDING)
             {
@@ -1502,7 +1622,7 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
                 }
             }
 
-            *Result = static_cast<PADDRINFOEXW>(WSKContext->Context);
+            *Result = static_cast<PADDRINFOEXW>(WSKContext->Pointer);
 
             WSKFreeContextIRP(WSKContext);
         }
@@ -1788,22 +1908,21 @@ NTSTATUS WSKAPI WSKCloseSocket(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType   = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKCloseSocketUnsafe(Socket_);
+        Status = WSKCloseSocketUnsafe(SocketObject.Socket);
         if (!NT_SUCCESS(Status))
         {
             break;
@@ -1823,7 +1942,9 @@ NTSTATUS WSKAPI WSKIoctl(
     _In_ SIZE_T         InputSize,
     _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
     _In_ SIZE_T         OutputSize,
-    _Out_opt_ SIZE_T* OutputSizeReturned
+    _Out_opt_ SIZE_T*   OutputSizeReturned,
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1847,23 +1968,22 @@ NTSTATUS WSKAPI WSKIoctl(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKControlSocketUnsafe(Socket_, SocketType, WskIoctl, ControlCode, 0,
-            InputBuffer, InputSize, OutputBuffer, OutputSize, OutputSizeReturned);
+        Status = WSKControlSocketUnsafe(SocketObject.Socket, SocketObject.SocketType, WskIoctl, ControlCode, 0,
+            InputBuffer, InputSize, OutputBuffer, OutputSize, OutputSizeReturned, Overlapped, CompletionRoutine);
 
     } while (false);
 
@@ -1894,23 +2014,51 @@ NTSTATUS WSKAPI WSKSetSocketOpt(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKControlSocketUnsafe(Socket_, SocketType, WskSetOption, OptionName, OptionLevel,
-            InputBuffer, InputSize, nullptr, 0, nullptr);
+        if (OptionLevel == SOL_SOCKET && (OptionName == SO_SNDTIMEO || OptionName == SO_RCVTIMEO))
+        {
+            if (InputSize != sizeof(ULONG) || InputBuffer == nullptr)
+            {
+                Status = STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+            ULONG* Timeout = nullptr;
+
+            if (OptionName == SO_SNDTIMEO)
+            {
+                Timeout = &SocketObject.SendTimeout;
+            }
+            if (OptionName == SO_RCVTIMEO)
+            {
+                Timeout = &SocketObject.RecvTimeout;
+            }
+
+            *Timeout = *static_cast<ULONG*>(InputBuffer);
+
+            if (!WSKSocketsAVLTableUpdate(Socket, &SocketObject))
+            {
+                Status = STATUS_UNSUCCESSFUL;
+            }
+
+            break;
+        }
+
+        Status = WSKControlSocketUnsafe(SocketObject.Socket, SocketObject.SocketType, WskSetOption,
+            OptionName, OptionLevel, InputBuffer, InputSize, nullptr, 0, nullptr, nullptr, nullptr);
 
     } while (false);
 
@@ -1941,23 +2089,43 @@ NTSTATUS WSKAPI WSKGetSocketOpt(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKControlSocketUnsafe(Socket_, SocketType, WskGetOption, OptionName, OptionLevel,
-            nullptr, 0, OutputBuffer, *OutputSize, OutputSize);
+        if (OptionLevel == SOL_SOCKET && (OptionName == SO_SNDTIMEO || OptionName == SO_RCVTIMEO))
+        {
+            if (*OutputSize != sizeof(ULONG) || OutputBuffer == nullptr)
+            {
+                Status = STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+            if (OptionName == SO_SNDTIMEO)
+            {
+                *static_cast<ULONG*>(OutputBuffer) = SocketObject.SendTimeout;
+            }
+            if (OptionName == SO_RCVTIMEO)
+            {
+                *static_cast<ULONG*>(OutputBuffer) = SocketObject.RecvTimeout;
+            }
+
+            *OutputSize = sizeof ULONG;
+            break;
+        }
+
+        Status = WSKControlSocketUnsafe(SocketObject.Socket, SocketObject.SocketType, WskGetOption,
+            OptionName, OptionLevel, nullptr, 0, OutputBuffer, *OutputSize, OutputSize, nullptr, nullptr);
 
     } while (false);
 
@@ -1986,22 +2154,21 @@ NTSTATUS WSKAPI WSKBind(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKBindUnsafe(Socket_, SocketType, LocalAddress, LocalAddressLength);
+        Status = WSKBindUnsafe(SocketObject.Socket, SocketObject.SocketType, LocalAddress, LocalAddressLength);
 
     } while (false);
 
@@ -2033,16 +2200,15 @@ NTSTATUS WSKAPI WSKAccpet(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
@@ -2050,7 +2216,7 @@ NTSTATUS WSKAPI WSKAccpet(
 
         PWSK_SOCKET SocketClient_ = nullptr;
 
-        Status = WSKAcceptUnsafe(Socket_, SocketType, &SocketClient_,
+        Status = WSKAcceptUnsafe(SocketObject.Socket, SocketObject.SocketType, &SocketClient_,
             LocalAddress, LocalAddressLength, RemoteAddress, RemoteAddressLength);
         if (!NT_SUCCESS(Status))
         {
@@ -2091,22 +2257,21 @@ NTSTATUS WSKAPI WSKListen(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKListenUnsafe(Socket_, SocketType);
+        Status = WSKListenUnsafe(SocketObject.Socket, SocketObject.SocketType);
 
     } while (false);
 
@@ -2135,22 +2300,21 @@ NTSTATUS WSKAPI WSKConnect(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKConnectUnsafe(Socket_, SocketType, RemoteAddress, RemoteAddressLength);
+        Status = WSKConnectUnsafe(SocketObject.Socket, SocketObject.SocketType, RemoteAddress, RemoteAddressLength);
 
     } while (false);
 
@@ -2178,22 +2342,21 @@ NTSTATUS WSKAPI WSKDisconnect(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKDisconnectUnsafe(Socket_, SocketType, nullptr, Flags);
+        Status = WSKDisconnectUnsafe(SocketObject.Socket, SocketObject.SocketType, nullptr, Flags);
 
     } while (false);
 
@@ -2206,7 +2369,8 @@ NTSTATUS WSKAPI WSKSend(
     _In_ SIZE_T BufferLength,
     _Out_opt_ SIZE_T* NumberOfBytesSent,
     _In_ ULONG  Flags,
-    _In_opt_ UINT32 TimeoutMilliseconds
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -2225,23 +2389,22 @@ NTSTATUS WSKAPI WSKSend(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKSendUnsafe(Socket_, SocketType, Buffer, BufferLength,
-            NumberOfBytesSent, Flags, TimeoutMilliseconds);
+        Status = WSKSendUnsafe(SocketObject.Socket, SocketObject.SocketType, Buffer, BufferLength,
+            NumberOfBytesSent, Flags, SocketObject.SendTimeout, Overlapped, CompletionRoutine);
 
     } while (false);
 
@@ -2255,7 +2418,9 @@ NTSTATUS WSKAPI WSKSendTo(
     _Out_opt_ SIZE_T*   NumberOfBytesSent,
     _Reserved_ ULONG    Flags,
     _In_opt_ PSOCKADDR  RemoteAddress,
-    _In_ SIZE_T         RemoteAddressLength
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -2274,23 +2439,23 @@ NTSTATUS WSKAPI WSKSendTo(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKSendToUnsafe(Socket_, SocketType, Buffer, BufferLength, NumberOfBytesSent,
-            Flags, RemoteAddress, RemoteAddressLength);
+        Status = WSKSendToUnsafe(SocketObject.Socket, SocketObject.SocketType, Buffer, BufferLength,
+            NumberOfBytesSent, Flags, RemoteAddress, RemoteAddressLength, SocketObject.SendTimeout,
+            Overlapped, CompletionRoutine);
 
     } while (false);
 
@@ -2303,7 +2468,8 @@ NTSTATUS WSKAPI WSKReceive(
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
     _In_ ULONG          Flags,
-    _In_opt_ UINT32     TimeoutMilliseconds
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -2322,23 +2488,22 @@ NTSTATUS WSKAPI WSKReceive(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKReceiveUnsafe(Socket_, SocketType, Buffer, BufferLength,
-            NumberOfBytesRecvd, Flags, TimeoutMilliseconds);
+        Status = WSKReceiveUnsafe(SocketObject.Socket, SocketObject.SocketType, Buffer, BufferLength,
+            NumberOfBytesRecvd, Flags, SocketObject.RecvTimeout, Overlapped, CompletionRoutine);
 
     } while (false);
 
@@ -2353,7 +2518,8 @@ NTSTATUS WSKAPI WSKReceiveFrom(
     _Reserved_ ULONG    Flags,
     _Out_opt_ PSOCKADDR RemoteAddress,
     _In_ SIZE_T         RemoteAddressLength,
-    _In_opt_ UINT32     TimeoutMilliseconds
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -2372,23 +2538,23 @@ NTSTATUS WSKAPI WSKReceiveFrom(
             break;
         }
 
-        PWSK_SOCKET Socket_ = nullptr;
-        USHORT SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
+        SOCKET_OBJECT SocketObject{};
 
-        if (!WSKSocketsAVLTableFind(Socket, &Socket_, &SocketType))
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
         {
             Status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        if (SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
         {
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
 
-        Status = WSKReceiveFromUnsafe(Socket_, SocketType, Buffer, BufferLength, NumberOfBytesRecvd,
-            Flags, RemoteAddress, RemoteAddressLength, TimeoutMilliseconds);
+        Status = WSKReceiveFromUnsafe(SocketObject.Socket, SocketObject.SocketType, Buffer, BufferLength,
+            NumberOfBytesRecvd, Flags, RemoteAddress, RemoteAddressLength, SocketObject.RecvTimeout,
+            Overlapped, CompletionRoutine);
 
     } while (false);
 

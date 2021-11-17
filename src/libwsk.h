@@ -11,6 +11,27 @@ using SOCKET = UINT_PTR;
 #    define WSK_FLAG_INVALID_SOCKET 0xffffffff
 #endif
 
+struct WSKOVERLAPPED
+{
+    ULONG_PTR Internal;
+    ULONG_PTR InternalHigh;
+    union {
+        struct {
+            ULONG Offset;
+            ULONG OffsetHigh;
+        } DUMMYSTRUCTNAME;
+        PVOID Pointer;
+    } DUMMYUNIONNAME;
+
+    KEVENT Event;
+};
+
+using LPWSKOVERLAPPED_COMPLETION_ROUTINE = VOID(WSKAPI*)(
+    _In_ NTSTATUS       Status,
+    _In_ ULONG_PTR      Bytes,
+    _In_ WSKOVERLAPPED* Overlapped
+    );
+
 struct WSKDATA
 {
     UINT16 HighestVersion;
@@ -24,11 +45,16 @@ NTSTATUS WSKAPI WSKStartup(
 
 VOID WSKAPI WSKCleanup();
 
-using LPLOOKUPSERVICE_COMPLETION_ROUTINE = VOID(NTAPI*)(
-    _In_ NTSTATUS       Status,
-    _In_ ULONG_PTR      Bytes,
-    _In_ PADDRINFOEXW   Result
-    );
+VOID WSKAPI WSKCreateEvent(
+    _Out_ KEVENT* Event
+);
+
+NTSTATUS WSKAPI WSKGetOverlappedResult(
+    _In_  SOCKET         Socket,
+    _In_  WSKOVERLAPPED* Overlapped,
+    _Out_opt_ SIZE_T*    TransferBytes,
+    _In_  BOOLEAN        Wait
+);
 
 NTSTATUS WSKAPI WSKGetAddrInfo(
     _In_opt_ LPCWSTR        NodeName,
@@ -36,9 +62,10 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
     _In_     UINT32         Namespace,
     _In_opt_ GUID*          Provider,
     _In_opt_ PADDRINFOEXW   Hints,
-    _Outptr_ PADDRINFOEXW*  Result,
+    _Outptr_result_maybenull_ PADDRINFOEXW*  Result,
     _In_opt_ UINT32         TimeoutMilliseconds,
-    _In_opt_ LPLOOKUPSERVICE_COMPLETION_ROUTINE CompletionRoutine
+    _In_opt_ WSKOVERLAPPED* Overlapped,
+    _In_opt_ LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 );
 
 VOID WSKAPI WSKFreeAddrInfo(
@@ -89,7 +116,9 @@ NTSTATUS WSKAPI WSKIoctl(
     _In_ SIZE_T         InputSize,
     _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
     _In_ SIZE_T         OutputSize,
-    _Out_opt_ SIZE_T* OutputSizeReturned
+    _Out_opt_ SIZE_T*   OutputSizeReturned,
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 );
 
 NTSTATUS WSKAPI WSKSetSocketOpt(
@@ -145,7 +174,8 @@ NTSTATUS WSKAPI WSKSend(
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesSent,
     _In_ ULONG          Flags,
-    _In_opt_ UINT32     TimeoutMilliseconds
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 );
 
 NTSTATUS WSKAPI WSKSendTo(
@@ -155,7 +185,9 @@ NTSTATUS WSKAPI WSKSendTo(
     _Out_opt_ SIZE_T*   NumberOfBytesSent,
     _Reserved_ ULONG    Flags,
     _In_opt_ PSOCKADDR  RemoteAddress,
-    _In_ SIZE_T         RemoteAddressLength
+    _In_ SIZE_T         RemoteAddressLength,
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 );
 
 NTSTATUS WSKAPI WSKReceive(
@@ -164,7 +196,8 @@ NTSTATUS WSKAPI WSKReceive(
     _In_ SIZE_T         BufferLength,
     _Out_opt_ SIZE_T*   NumberOfBytesRecvd,
     _In_ ULONG          Flags,
-    _In_opt_ UINT32     TimeoutMilliseconds
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 );
 
 NTSTATUS WSKAPI WSKReceiveFrom(
@@ -175,5 +208,6 @@ NTSTATUS WSKAPI WSKReceiveFrom(
     _Reserved_ ULONG    Flags,
     _Out_opt_ PSOCKADDR RemoteAddress,
     _In_ SIZE_T         RemoteAddressLength,
-    _In_opt_ UINT32     TimeoutMilliseconds
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 );

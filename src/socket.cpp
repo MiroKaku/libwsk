@@ -3,18 +3,6 @@
 
 
 //////////////////////////////////////////////////////////////////////////
-// Private Struct
-
-struct SOCKET_OBJECT
-{
-    PWSK_SOCKET Socket;
-    USHORT      SocketType;     // WSK_FLAG_xxxxxx_SOCKET
-    USHORT      FileDescriptor;
-    PVOID       Context;
-};
-using PSOCKET_OBJECT = SOCKET_OBJECT*;
-
-//////////////////////////////////////////////////////////////////////////
 // Global  Data
 
 static NPAGED_LOOKASIDE_LIST WSKSocketsLookasidePool;
@@ -100,15 +88,25 @@ BOOLEAN WSKAPI WSKSocketsAVLTableInsert(
     static volatile short _FD = 4;
 
     SOCKET_OBJECT SockObject{};
-    SockObject.Socket         = Socket;
-    SockObject.SocketType     = SocketType;
-    SockObject.FileDescriptor = InterlockedCompareExchange16(&_FD, _FD + 4, _FD);
+    SockObject.Socket       = Socket;
+    SockObject.SocketType   = SocketType;
+    SockObject.SendTimeout  = WSK_INFINITE_WAIT;
+    SockObject.RecvTimeout  = WSK_INFINITE_WAIT;
 
     BOOLEAN Inserted = FALSE;
 
     ExAcquireFastMutex(&WSKSocketsAVLTableMutex);
     {
-        RtlInsertElementGenericTableAvl(&WSKSocketsAVLTable, &SockObject, sizeof SockObject, &Inserted);
+        do 
+        {
+            SockObject.FileDescriptor = InterlockedCompareExchange16(&_FD, _FD + 4, _FD);
+
+            if (!RtlInsertElementGenericTableAvl(&WSKSocketsAVLTable, &SockObject, sizeof SockObject, &Inserted))
+            {
+                break;
+            }
+
+        } while (!Inserted);
     }
     ExReleaseFastMutex(&WSKSocketsAVLTableMutex);
 
@@ -145,30 +143,24 @@ BOOLEAN WSKAPI WSKSocketsAVLTableDelete(
 }
 
 BOOLEAN WSKAPI WSKSocketsAVLTableFind(
-    _In_  SOCKET        SocketFD,
-    _Out_ PWSK_SOCKET*  Socket,
-    _Out_ USHORT*       SocketType
+    _In_  SOCKET         SocketFD,
+    _Out_ SOCKET_OBJECT* SocketObject
 )
 {
     PAGED_CODE();
 
-    *Socket     = nullptr;
-    *SocketType = static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET);
-
-    SOCKET_OBJECT SockObject{};
-    SockObject.FileDescriptor = static_cast<USHORT>(SocketFD);
-
     BOOLEAN Found = FALSE;
+
+    SocketObject->FileDescriptor = static_cast<USHORT>(SocketFD);
 
     ExAcquireFastMutex(&WSKSocketsAVLTableMutex);
     {
-        auto Node = static_cast<SOCKET_OBJECT*>(RtlLookupElementGenericTableAvl(&WSKSocketsAVLTable, &SockObject));
+        auto Node = static_cast<SOCKET_OBJECT*>(RtlLookupElementGenericTableAvl(&WSKSocketsAVLTable, SocketObject));
         if (Node != nullptr)
         {
             Found = TRUE;
 
-            *Socket     = Node->Socket;
-            *SocketType = Node->SocketType;
+            *SocketObject = *Node;
         }
     }
     ExReleaseFastMutex(&WSKSocketsAVLTableMutex);
@@ -177,33 +169,25 @@ BOOLEAN WSKAPI WSKSocketsAVLTableFind(
 }
 
 BOOLEAN WSKAPI WSKSocketsAVLTableUpdate(
-    _In_     SOCKET     SocketFD,
-    _In_opt_ PWSK_SOCKET Socket,
-    _In_opt_ USHORT     SocketType
+    _In_  SOCKET         SocketFD,
+    _In_  SOCKET_OBJECT* SocketObject
 )
 {
     PAGED_CODE();
 
-    SOCKET_OBJECT SockObject{};
-    SockObject.FileDescriptor = static_cast<USHORT>(SocketFD);
-
     BOOLEAN Found = FALSE;
+
+    SocketObject->FileDescriptor = static_cast<USHORT>(SocketFD);
 
     ExAcquireFastMutex(&WSKSocketsAVLTableMutex);
     {
-        auto Node = static_cast<SOCKET_OBJECT*>(RtlLookupElementGenericTableAvl(&WSKSocketsAVLTable, &SockObject));
+        auto Node = static_cast<SOCKET_OBJECT*>(RtlLookupElementGenericTableAvl(&WSKSocketsAVLTable, SocketObject));
         if (Node != nullptr)
         {
             Found = TRUE;
 
-            if (Socket)
-            {
-                Node->Socket = Socket;
-            }
-            if (SocketType != static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
-            {
-                Node->SocketType = SocketType;
-            }
+            Node->SendTimeout = SocketObject->SendTimeout;
+            Node->RecvTimeout = SocketObject->RecvTimeout;
         }
     }
     ExReleaseFastMutex(&WSKSocketsAVLTableMutex);
