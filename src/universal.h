@@ -1,5 +1,8 @@
 #pragma once
 
+#undef  NTDDI_VERSION
+#define NTDDI_VERSION NTDDI_WIN10_CO
+
 // C & C++
 #include <stddef.h>
 #include <stdlib.h>

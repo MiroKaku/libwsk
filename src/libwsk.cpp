@@ -205,13 +205,15 @@ WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
 
     do 
     {
-        WSKContext = static_cast<WSK_CONTEXT_IRP*>(
-            ExAllocatePoolZero(NonPagedPoolNx, sizeof(WSK_CONTEXT_IRP), WSK_POOL_TAG));
+#       pragma warning(suppress: 4996)
+        WSKContext = static_cast<WSK_CONTEXT_IRP*>(ExAllocatePoolWithTag(NonPagedPoolNx,
+            sizeof(WSK_CONTEXT_IRP), WSK_POOL_TAG));
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             break;
         }
+        RtlSecureZeroMemory(WSKContext, sizeof(WSK_CONTEXT_IRP));
 
         WSKContext->CompletionRoutine = CompletionRoutine;
         WSKContext->Context = Context;

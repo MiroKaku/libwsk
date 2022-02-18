@@ -1,3 +1,5 @@
+#define POOL_ZERO_DOWN_LEVEL_SUPPORT
+
 #include <stdlib.h>
 #include <ntddk.h>
 #include <wdm.h>
@@ -39,6 +41,7 @@ NTSTATUS DriverEntry(_In_ DRIVER_OBJECT* DriverObject, _In_ PUNICODE_STRING Regi
 
     do 
     {
+        ExInitializeDriverRuntime(0);
         DriverObject->DriverUnload = DriverUnload;
 
         WSKDATA WSKData{};
