@@ -31,6 +31,7 @@ struct WSK_CONTEXT_IRP
 // Global  Data
 
 static volatile long _Initialized = false;
+static volatile long _lasterror   = STATUS_SUCCESS;
 
 WSK_CLIENT_DISPATCH WSKClientDispatch = {
     MAKE_WSK_VERSION(1, 0), // This default uses WSK version 1.0
@@ -1414,6 +1415,18 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
 //////////////////////////////////////////////////////////////////////////
 // Public  Function
 
+VOID WSKAPI WSKSetLastError(
+    _In_ NTSTATUS Status
+)
+{
+    _lasterror = Status;
+}
+
+NTSTATUS WSKAPI WSKGetLastError()
+{
+    return _lasterror;
+}
+
 NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -1652,7 +1665,7 @@ VOID WSKAPI WSKFreeAddrInfo(
 }
 
 NTSTATUS WSKAPI WSKGetNameInfo(
-    _In_ SOCKADDR*  Address,
+    _In_ const SOCKADDR* Address,
     _In_ ULONG      AddressLength,
     _Out_writes_opt_(NodeNameSize)      LPWSTR  NodeName,
     _In_ ULONG      NodeNameSize,
@@ -1699,7 +1712,7 @@ NTSTATUS WSKAPI WSKGetNameInfo(
 
         Status = WSKNPIProvider.Dispatch->WskGetNameInfo(
             WSKNPIProvider.Client,
-            Address,
+            const_cast<PSOCKADDR>(Address),
             AddressLength,
             NodeName    ? &NodeNameS    : nullptr,
             ServiceName ? &ServiceNameS : nullptr,

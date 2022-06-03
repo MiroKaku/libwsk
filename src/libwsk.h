@@ -32,6 +32,12 @@ using LPWSKOVERLAPPED_COMPLETION_ROUTINE = VOID(WSKAPI*)(
     _In_ WSKOVERLAPPED* Overlapped
     );
 
+VOID WSKAPI WSKSetLastError(
+    _In_ NTSTATUS Status
+);
+
+NTSTATUS WSKAPI WSKGetLastError();
+
 struct WSKDATA
 {
     UINT16 HighestVersion;
@@ -73,7 +79,7 @@ VOID WSKAPI WSKFreeAddrInfo(
 );
 
 NTSTATUS WSKAPI WSKGetNameInfo(
-    _In_ SOCKADDR*  Address,
+    _In_ const SOCKADDR*  Address,
     _In_ ULONG      AddressLength,
     _Out_writes_opt_(NodeNameSize)      LPWSTR  NodeName,
     _In_ ULONG      NodeNameSize,

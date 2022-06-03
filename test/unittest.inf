@@ -7,7 +7,7 @@ Signature   = "$WINDOWS NT$"
 Class       = NetService
 ClassGuid   = {4d36e974-e325-11ce-bfc1-08002be10318}
 Provider    = %ManufacturerName%
-CatalogFile = %DriverName%.cat
+CatalogFile = libwsk.cat
 DriverVer   = 
 PnpLockdown = 1
 
@@ -20,44 +20,28 @@ DefaultDestDir = 12
 1 = %DiskId%,,,""
 
 [SourceDisksFiles]
-unittest.sys = 1,,
+unittest.sys    = 1,,
 
-[Files.Copy.NTx86]
+[Install.Drivers]
 libwsk.sys,unittest.sys,,0x00004020 ; COPYFLG_IN_USE_RENAME | COPYFLG_NO_VERSION_DIALOG
 
-[Files.Copy.NTamd64]
-libwsk.sys,unittest.sys,,0x00004020
-
-[Files.Del]
+[Uninstall.Drivers]
 libwsk.sys
 
 ;*************************************
 
-[DefaultInstall.NTx86]
-CopyFiles=Files.Copy.NTx86
+[DefaultInstall.NT$ARCH$]
+CopyFiles       = Install.Drivers
 
-[DefaultInstall.NTamd64]
-CopyFiles=Files.Copy.NTamd64
+[DefaultInstall.NT$ARCH$.Services]
+AddService      = %ServiceName%,%ServicInstFlags%, ServiceInstall
 
-[DefaultInstall.NTx86.Services]
-AddService = %ServiceName%,%ServicInstFlags%, ServiceInstall
+[DefaultUninstall.NT$ARCH$]
+LegacyUninstall = 1
+DelFiles        = Uninstall.Drivers
 
-[DefaultInstall.NTamd64.Services]
-AddService = %ServiceName%,%ServicInstFlags%, ServiceInstall
-
-[DefaultUninstall.NTx86]
-LegacyUninstall=1
-DelFiles   = Files.Del
-
-[DefaultUninstall.NTamd64]
-LegacyUninstall=1
-DelFiles   = Files.Del
-
-[DefaultUninstall.NTx86.Services]
-DelService = %ServiceName%,0x200
-
-[DefaultUninstall.NTamd64.Services]
-DelService = %ServiceName%,0x200
+[DefaultUninstall.NT$ARCH$.Services]
+DelService      = %ServiceName%,0x200
 
 ;*************************************
 
@@ -79,7 +63,6 @@ ErrorControl   = 1                  ; SERVICE_ERROR_NORMAL
 ServicInstFlags         = 0x00000000
 
 ManufacturerName        = "MiroKaku"
-DriverName              = "unittest"
 ServiceDesc             = "A Winsock-Kernel library."
 ServiceName             = "libwsk"
 DiskId                  = "libwsk Device Installation Disk"

@@ -35,10 +35,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\src\berkeley.cpp" />
     <ClCompile Include="..\src\libwsk.cpp" />
     <ClCompile Include="..\src\socket.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\berkeley.h" />
     <ClInclude Include="..\src\libwsk.h" />
     <ClInclude Include="..\src\socket.h" />
     <ClInclude Include="..\src\universal.h" />

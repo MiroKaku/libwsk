@@ -582,7 +582,7 @@ namespace UnitTest
                     "This is a small test message [number %Id]",
                     LoopCount++);
 
-                RtlStringCbLengthA(static_cast<LPSTR>(Buffer), DEFAULT_BUFFER_LEN, &BufferLength);
+                RtlStringCbLengthA(static_cast<LPSTR>(Buffer), DEFAULT_BUFFER_LEN, (size_t*) & BufferLength);
 
                 // TCP
                 if (SocketType == SOCK_STREAM)

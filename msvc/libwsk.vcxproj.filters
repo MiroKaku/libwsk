@@ -13,6 +13,9 @@
     <ClCompile Include="..\src\socket.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\berkeley.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\libwsk.h">
@@ -22,6 +25,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\socket.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\berkeley.h">
       <Filter>src</Filter>
     </ClInclude>
   </ItemGroup>
