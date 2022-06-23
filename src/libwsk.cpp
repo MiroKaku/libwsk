@@ -361,6 +361,24 @@ NTSTATUS WSKAPI WSKSocketUnsafe(
             break;
         }
 
+        if (Protocol == 0)
+        {
+            switch (SocketType)
+            {
+            case SOCK_STREAM:
+                Protocol = IPPROTO_TCP;
+                break;
+
+            case SOCK_DGRAM:
+                Protocol = IPPROTO_UDP;
+                break;
+
+            case SOCK_RAW:
+                Protocol = IPPROTO_RAW;
+                break;
+            }
+        }
+
         Status = WSKNPIProvider.Dispatch->WskSocket(
             WSKNPIProvider.Client,
             AddressFamily,
