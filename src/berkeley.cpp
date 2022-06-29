@@ -12,12 +12,20 @@ extern "C" {
 SOCKET WSKAPI socket(
     _In_ int af,
     _In_ int type,
-    _In_ int protocol
+    _In_ int protocol,
+    _In_ int mode
 )
 {
     SOCKET   Socket = WSK_INVALID_SOCKET;
-    NTSTATUS Status = WSKSocket(&Socket, static_cast<ADDRESS_FAMILY>(af),
-        static_cast<USHORT>(type), static_cast<ULONG>(protocol), nullptr);
+    NTSTATUS Status;
+    if (mode == ClientSocketMode) {
+        Status = WSKSocket(&Socket, static_cast<ADDRESS_FAMILY>(af),
+            static_cast<USHORT>(type), static_cast<ULONG>(protocol), ClientSocketMode, nullptr);
+    }
+    else {
+        Status = WSKSocket(&Socket, static_cast<ADDRESS_FAMILY>(af),
+            static_cast<USHORT>(type), static_cast<ULONG>(protocol), ServerSocketMode, nullptr);
+    }
 
     return WSKSetLastError(Status), Socket;
 }

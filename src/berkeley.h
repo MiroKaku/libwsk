@@ -28,7 +28,8 @@ extern "C" {
 SOCKET WSKAPI socket(
     _In_ int af,
     _In_ int type,
-    _In_ int protocol
+    _In_ int protocol,
+    _In_ int mode
 );
 
 int WSKAPI closesocket(

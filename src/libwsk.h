@@ -103,11 +103,17 @@ NTSTATUS WSKAPI WSKStringToAddress(
     _Inout_ UINT32*     AddressLength
 );
 
+enum SocketModes :int {
+    ClientSocketMode,
+    ServerSocketMode
+};
+
 NTSTATUS WSKAPI WSKSocket(
-    _Out_ SOCKET*           Socket,
+    _Out_ SOCKET* Socket,
     _In_  ADDRESS_FAMILY    AddressFamily,
     _In_  USHORT            SocketType,
     _In_  ULONG             Protocol,
+    _In_  SocketModes       SocketMode,
     _In_opt_ PSECURITY_DESCRIPTOR SecurityDescriptor
 );
 

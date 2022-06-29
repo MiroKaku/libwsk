@@ -1,7 +1,7 @@
 #pragma once
 
 #undef  NTDDI_VERSION
-#define NTDDI_VERSION NTDDI_WIN10_CO
+#define NTDDI_VERSION NTDDI_WIN10_VB
 
 // C & C++
 #include <stddef.h>

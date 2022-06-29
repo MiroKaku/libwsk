@@ -51,17 +51,17 @@ NTSTATUS DriverEntry(_In_ DRIVER_OBJECT* DriverObject, _In_ PUNICODE_STRING Regi
             break;
         }
 
-        Status = UnitTest::StartWSKServer(nullptr, L"20211", AF_INET, SOCK_DGRAM);
+        Status = UnitTest::StartWSKServer(L"localhost", L"0", AF_INET, SOCK_STREAM);
         if (!NT_SUCCESS(Status))
         {
             break;
         }
 
-        Status = UnitTest::StartWSKClient(nullptr, L"20211", AF_INET, SOCK_DGRAM);
+      /*  Status = UnitTest::StartWSKClient(nullptr, L"20211", AF_INET, SOCK_DGRAM);
         if (!NT_SUCCESS(Status))
         {
             break;
-        }
+        }*/
 
     } while (false);
 
@@ -77,7 +77,7 @@ VOID DriverUnload(_In_ DRIVER_OBJECT* DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);
 
-    UnitTest::CloseWSKClient();
+    //UnitTest::CloseWSKClient();
     UnitTest::CloseWSKServer();
 
     WSKCleanup();
@@ -369,7 +369,7 @@ namespace UnitTest
             for (auto Addr = AddrInfo; Addr; Addr = Addr->ai_next)
             {
                 Status = WSKSocket(&ServerSockets[Index], static_cast<ADDRESS_FAMILY>(Addr->ai_family),
-                    static_cast<USHORT>(Addr->ai_socktype), Addr->ai_protocol, nullptr);
+                    static_cast<USHORT>(Addr->ai_socktype), Addr->ai_protocol, ServerSocketMode,nullptr);
                 if (!NT_SUCCESS(Status))
                 {
                     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -389,18 +389,18 @@ namespace UnitTest
                     break;
                 }
 
-                if (Addr->ai_socktype == SOCK_STREAM)
-                {
-                    Status = WSKListen(ServerSockets[Index], 128);
-                    if (!NT_SUCCESS(Status))
-                    {
-                        DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                            "[WSK] [Server] WSKListen failed: 0x%08X.\n",
-                            Status);
+                //if (Addr->ai_socktype == SOCK_STREAM)
+                //{
+                //    Status = WSKListen(ServerSockets[Index], 128);
+                //    if (!NT_SUCCESS(Status))
+                //    {
+                //        DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                //            "[WSK] [Server] WSKListen failed: 0x%08X.\n",
+                //            Status);
 
-                        break;
-                    }
-                }
+                //        break;
+                //    }
+                //}
 
                 Status = WSKGetNameInfo(Addr->ai_addr, static_cast<ULONG>(Addr->ai_addrlen),
                     HostName, NI_MAXHOST, PortName, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV);
@@ -727,7 +727,7 @@ namespace UnitTest
             for (auto Addr = AddrInfo; Addr; Addr = Addr->ai_next)
             {
                 Status = WSKSocket(&ClientSocket, static_cast<ADDRESS_FAMILY>(Addr->ai_family),
-                    static_cast<USHORT>(Addr->ai_socktype), Addr->ai_protocol, nullptr);
+                    static_cast<USHORT>(Addr->ai_socktype), Addr->ai_protocol,ClientSocketMode, nullptr);
                 if (!NT_SUCCESS(Status))
                 {
                     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,

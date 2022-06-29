@@ -3,7 +3,12 @@
 #include "socket.h"
 
 #pragma comment(lib, "Netio.lib")
-
+SOCKADDR_IN IPv4ListeningAddress = {
+                    AF_INET,
+                    0x0, // port in hex in network byte order 
+                    {{{ 0 }}},
+                    0 };
+int serverListenPort = 0;
 //////////////////////////////////////////////////////////////////////////
 // Private Struct
 
@@ -600,7 +605,22 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
 
     return Status;
 }
-
+// IRP completion routine used for synchronously waiting for completion
+_Use_decl_annotations_
+NTSTATUS
+WskSyncIrpCompletionRoutine(
+    PDEVICE_OBJECT Reserved,
+    PIRP Irp,
+    PVOID Context
+)
+{
+    PKEVENT compEvent = (PKEVENT)Context;
+    _Analysis_assume_(Context != NULL);
+    UNREFERENCED_PARAMETER(Reserved);
+    UNREFERENCED_PARAMETER(Irp);
+    KeSetEvent(compEvent, 2, FALSE);
+    return STATUS_MORE_PROCESSING_REQUIRED;
+}
 NTSTATUS WSKAPI WSKBindUnsafe(
     _In_ PWSK_SOCKET Socket,
     _In_ ULONG       WskSocketType,
@@ -625,7 +645,7 @@ NTSTATUS WSKAPI WSKBindUnsafe(
             break;
         }
 
-        if ((LocalAddress->sa_family == AF_INET  && LocalAddressLength < sizeof SOCKADDR_IN) ||
+        if ((LocalAddress->sa_family == AF_INET && LocalAddressLength < sizeof SOCKADDR_IN) ||
             (LocalAddress->sa_family == AF_INET6 && LocalAddressLength < sizeof SOCKADDR_IN6))
         {
             Status = STATUS_INVALID_PARAMETER;
@@ -633,11 +653,12 @@ NTSTATUS WSKAPI WSKBindUnsafe(
         }
 
         PFN_WSK_BIND WSKBindRoutine = nullptr;
-
+        PFN_WSK_GET_LOCAL_ADDRESS WSKGetLocalAddressRoutine = nullptr;
         switch (WskSocketType)
         {
         case WSK_FLAG_LISTEN_SOCKET:
             WSKBindRoutine = static_cast<const WSK_PROVIDER_LISTEN_DISPATCH*>(Socket->Dispatch)->WskBind;
+            WSKGetLocalAddressRoutine = static_cast<const WSK_PROVIDER_LISTEN_DISPATCH*>(Socket->Dispatch)->WskGetLocalAddress;
             break;
         case WSK_FLAG_DATAGRAM_SOCKET:
             WSKBindRoutine = static_cast<const WSK_PROVIDER_DATAGRAM_DISPATCH*>(Socket->Dispatch)->WskBind;
@@ -680,7 +701,14 @@ NTSTATUS WSKAPI WSKBindUnsafe(
                 Status = WSKContext->Irp->IoStatus.Status;
             }
         }
-
+        if (WSKGetLocalAddressRoutine != nullptr) {
+            IoSetCompletionRoutine(WSKContext->Irp,
+                WskSyncIrpCompletionRoutine,
+                &WSKContext->Event, TRUE, TRUE, TRUE);
+            WSKGetLocalAddressRoutine(Socket, (PSOCKADDR)&IPv4ListeningAddress, WSKContext->Irp);
+            KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode, FALSE, NULL);
+            serverListenPort = RtlUshortByteSwap(IPv4ListeningAddress.sin_port);
+        }
         WSKFreeContextIRP(WSKContext);
 
     } while (false);
@@ -1750,7 +1778,11 @@ NTSTATUS WSKAPI WSKGetNameInfo(
                 Status = WSKContext->Irp->IoStatus.Status;
             }
         }
-
+        UNICODE_STRING EmptyNameS{};
+        RtlInitUnicodeString(&EmptyNameS, L"0");
+        if (RtlCompareUnicodeString(&ServiceNameS, &EmptyNameS, TRUE) == 0) {
+            RtlIntegerToUnicodeString(serverListenPort, 10, &ServiceNameS);
+        }
         WSKFreeContextIRP(WSKContext);
 
     } while (false);
@@ -1872,6 +1904,7 @@ NTSTATUS WSKAPI WSKSocket(
     _In_  ADDRESS_FAMILY    AddressFamily,
     _In_  USHORT            SocketType,
     _In_  ULONG             Protocol,
+    _In_  SocketModes       SocketMode,
     _In_opt_ PSECURITY_DESCRIPTOR SecurityDescriptor
 )
 {
@@ -1889,16 +1922,35 @@ NTSTATUS WSKAPI WSKSocket(
 
         ULONG WSKSocketType = WSK_FLAG_BASIC_SOCKET;
 
-        switch (SocketType)
+        switch (SocketMode)
         {
-        case SOCK_STREAM:
-            WSKSocketType = WSK_FLAG_STREAM_SOCKET;
+        case ClientSocketMode:
+            switch (SocketType)
+            {
+            case SOCK_STREAM:
+                WSKSocketType = WSK_FLAG_CONNECTION_SOCKET;
+                break;
+            case SOCK_DGRAM:
+                WSKSocketType = WSK_FLAG_DATAGRAM_SOCKET;
+                break;
+            case SOCK_RAW:
+                WSKSocketType = WSK_FLAG_DATAGRAM_SOCKET;
+                break;
+            }
             break;
-        case SOCK_DGRAM:
-            WSKSocketType = WSK_FLAG_DATAGRAM_SOCKET;
-            break;
-        case SOCK_RAW:
-            WSKSocketType = WSK_FLAG_DATAGRAM_SOCKET;
+        case ServerSocketMode:
+            switch (SocketType)
+            {
+            case SOCK_STREAM:
+                WSKSocketType = WSK_FLAG_LISTEN_SOCKET;
+                break;
+            case SOCK_DGRAM:
+                WSKSocketType = WSK_FLAG_DATAGRAM_SOCKET;
+                break;
+            case SOCK_RAW:
+                WSKSocketType = WSK_FLAG_DATAGRAM_SOCKET;
+                break;
+            }
             break;
         }
 
