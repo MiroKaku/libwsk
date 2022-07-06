@@ -7,7 +7,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <Inf Include="..\test\unittest.inf" />
+    <Inf Include="..\test\libwsk.inf" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\test\main.cpp">

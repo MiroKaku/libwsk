@@ -2,7 +2,7 @@
 
 [![Actions Status](https://github.com/MiroKaku/libwsk/workflows/CodeQL/badge.svg)](https://github.com/MiroKaku/libwsk/actions)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/MiroKaku/libwsk/blob/master/LICENSE)
-![Windows](https://img.shields.io/badge/Windows-10%20RS2+-orange.svg)
+![Windows](https://img.shields.io/badge/Windows%207+-orange.svg)
 ![Visual Studio](https://img.shields.io/badge/Visual%20Studio-2019-purple.svg)
 
 ## 关于
@@ -13,7 +13,13 @@ libwsk 是对 WSK [(Winsock-Kernel)](https://docs.microsoft.com/en-us/windows-ha
 
 IDE：Visual Studio 2019 or higher
 
-1. git clone https://github.com/MiroKaku/libwsk.git
+> 如果目标系统是 Windows7，请设置这些。
+> ```
+> libwsk 属性页 -> Driver Settings -> Target OS Version = Windows 7
+> libwsk 属性页 -> Driver Settings -> Target Platform   = Desktop
+> ```
+
+1. `git clone --recurse-submodules https://github.com/MiroKaku/libwsk.git`
 2. 打开 `msvc/libwsk.sln` 并编译它。
 3. 引入 `libwsk.lib` 到你的项目。参考 `unittest`。
 

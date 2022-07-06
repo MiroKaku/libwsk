@@ -55,7 +55,12 @@ VOID NTAPI WSKSocketsAVLNodeFree(
 VOID WSKAPI WSKSocketsAVLTableInitialize()
 {
     ExInitializeNPagedLookasideList(&WSKSocketsLookasidePool, nullptr, nullptr,
-        POOL_NX_ALLOCATION, max(sizeof SOCKET_OBJECT + sizeof RTL_BALANCED_LINKS, 64), WSK_POOL_TAG, 0);
+#if (NTDDI_VERSION < NTDDI_WIN8)
+        0,
+#else
+        POOL_NX_ALLOCATION,
+#endif
+        max(sizeof SOCKET_OBJECT + sizeof RTL_BALANCED_LINKS, 64), WSK_POOL_TAG, 0);
 
     ExInitializeFastMutex(&WSKSocketsAVLTableMutex);
 

@@ -11,6 +11,10 @@ using SOCKET = UINT_PTR;
 #    define WSK_FLAG_INVALID_SOCKET 0xffffffff
 #endif
 
+#ifndef WSK_FLAG_STREAM_SOCKET
+#   define WSK_FLAG_STREAM_SOCKET   0x00000008
+#endif
+
 struct WSKOVERLAPPED
 {
     ULONG_PTR Internal;

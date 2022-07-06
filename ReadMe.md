@@ -2,7 +2,7 @@
 
 [![Actions Status](https://github.com/MiroKaku/libwsk/workflows/CodeQL/badge.svg)](https://github.com/MiroKaku/libwsk/actions)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/MiroKaku/libwsk/blob/master/LICENSE)
-![Windows](https://img.shields.io/badge/Windows-10%20RS2+-orange.svg)
+![Windows](https://img.shields.io/badge/Windows%207+-orange.svg)
 ![Visual Studio](https://img.shields.io/badge/Visual%20Studio-2019-purple.svg)
 
 * [简体中文](ReadMe.zh-cn.md)
@@ -15,9 +15,15 @@ libwsk is a wrapper for the [WSK (Winsock-Kernel)](https://docs.microsoft.com/en
 
 IDE：Visual Studio 2019 or higher
 
-1. git clone https://github.com/MiroKaku/libwsk.git
+> if target OS is Windows7, please set these.
+> ```
+> libwsk property pages -> Driver Settings -> Target OS Version = Windows 7
+> libwsk Property pages -> Driver Settings -> Target Platform   = Desktop
+> ```
+
+1. `git clone --recurse-submodules https://github.com/MiroKaku/libwsk.git`
 2. Open the `msvc/libwsk.sln` and build it.
-3. include `libwsk.lib` to your project. refer `unittest`。
+3. Include `libwsk.lib` to your project. refer `unittest`.
 
 ## Supported progress
 

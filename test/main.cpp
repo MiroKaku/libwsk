@@ -1,5 +1,3 @@
-#define POOL_ZERO_DOWN_LEVEL_SUPPORT
-
 #include <stdlib.h>
 #include <ntddk.h>
 #include <wdm.h>
@@ -41,7 +39,7 @@ NTSTATUS DriverEntry(_In_ DRIVER_OBJECT* DriverObject, _In_ PUNICODE_STRING Regi
 
     do 
     {
-        ExInitializeDriverRuntime(0);
+        ExInitializeDriverRuntime(DrvRtPoolNxOptIn);
         DriverObject->DriverUnload = DriverUnload;
 
         WSKDATA WSKData{};
@@ -51,13 +49,13 @@ NTSTATUS DriverEntry(_In_ DRIVER_OBJECT* DriverObject, _In_ PUNICODE_STRING Regi
             break;
         }
 
-        Status = UnitTest::StartWSKServer(nullptr, L"20211", AF_INET, SOCK_DGRAM);
+        Status = UnitTest::StartWSKServer(nullptr, L"20211", AF_INET, SOCK_STREAM);
         if (!NT_SUCCESS(Status))
         {
             break;
         }
 
-        Status = UnitTest::StartWSKClient(nullptr, L"20211", AF_INET, SOCK_DGRAM);
+        Status = UnitTest::StartWSKClient(nullptr, L"20211", AF_INET, SOCK_STREAM);
         if (!NT_SUCCESS(Status))
         {
             break;
@@ -126,7 +124,7 @@ namespace UnitTest
             if (Buffer == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[WSK] [Server] ExAllocatePoolWithTag(Buffer) failed.\n");
+                    "[WSK] [Server] ExAllocatePoolZero(Buffer) failed.\n");
 
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
@@ -138,7 +136,7 @@ namespace UnitTest
             if (HostName == nullptr || PortName == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[WSK] [Server] ExAllocatePoolWithTag(Name) failed.\n");
+                    "[WSK] [Server] ExAllocatePoolZero(Name) failed.\n");
 
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
@@ -311,7 +309,7 @@ namespace UnitTest
             if (HostName == nullptr || PortName == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[WSK] [Server] ExAllocatePoolWithTag(Name) failed.\n");
+                    "[WSK] [Server] ExAllocatePoolZero(Name) failed.\n");
 
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
@@ -354,7 +352,7 @@ namespace UnitTest
             if (ServerSockets == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[WSK] [Server] ExAllocatePoolWithTag(Sockets) failed.\n");
+                    "[WSK] [Server] ExAllocatePoolZero(Sockets) failed.\n");
 
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
@@ -428,7 +426,7 @@ namespace UnitTest
             if (ServerThreads == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[WSK] [Server] ExAllocatePoolWithTag(Threads) failed.\n");
+                    "[WSK] [Server] ExAllocatePoolZero(Threads) failed.\n");
 
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
@@ -567,7 +565,7 @@ namespace UnitTest
             if (Buffer == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[WSK] [Client] ExAllocatePoolWithTag(Buffer) failed.\n");
+                    "[WSK] [Client] ExAllocatePoolZero(Buffer) failed.\n");
 
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
@@ -691,7 +689,7 @@ namespace UnitTest
             if (HostName == nullptr || PortName == nullptr)
             {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[WSK] [Client] ExAllocatePoolWithTag(Name) failed.\n");
+                    "[WSK] [Client] ExAllocatePoolZero(Name) failed.\n");
 
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;

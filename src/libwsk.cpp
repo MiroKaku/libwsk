@@ -27,6 +27,14 @@ struct WSK_CONTEXT_IRP
     WSK_BUF OutputBuffer;
 };
 
+#if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+typedef struct _WSK_STREAM_SOCKET_WIN7 {
+    BOOLEAN     Mode;   // 0:unknown, 1:listen, 2:connect
+    PWSK_SOCKET Listen;
+    PWSK_SOCKET Connect;
+} WSK_STREAM_SOCKET_WIN7, * PWSK_STREAM_SOCKET_WIN7;
+#endif // if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
 //////////////////////////////////////////////////////////////////////////
 // Global  Data
 
@@ -83,18 +91,13 @@ NTSTATUS WSKAPI WSKLockBuffer(
 
         __try
         {
-            if ((WSKBuffer->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA)     != MDL_MAPPED_TO_SYSTEM_VA &&
-                (WSKBuffer->Mdl->MdlFlags & MDL_PAGES_LOCKED)            != MDL_PAGES_LOCKED        &&
-                (WSKBuffer->Mdl->MdlFlags & MDL_SOURCE_IS_NONPAGED_POOL) != MDL_SOURCE_IS_NONPAGED_POOL)
-            {
-                MmProbeAndLockPages(WSKBuffer->Mdl, KernelMode, ReadOnly ? IoReadAccess : IoWriteAccess);
-            }
+            MmProbeAndLockPages(WSKBuffer->Mdl, KernelMode, ReadOnly ? IoReadAccess : IoWriteAccess);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            IoFreeMdl(WSKBuffer->Mdl), WSKBuffer->Mdl = nullptr;
-
             Status = GetExceptionCode();
+
+            IoFreeMdl(WSKBuffer->Mdl), WSKBuffer->Mdl = nullptr;
             break;
         }
 
@@ -154,13 +157,7 @@ VOID WSKAPI WSKUnlockBuffer(
     {
         if (WSKBuffer->Mdl)
         {
-            if ((WSKBuffer->Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA)     != MDL_MAPPED_TO_SYSTEM_VA &&
-                (WSKBuffer->Mdl->MdlFlags & MDL_PAGES_LOCKED)            != MDL_PAGES_LOCKED        &&
-                (WSKBuffer->Mdl->MdlFlags & MDL_SOURCE_IS_NONPAGED_POOL) != MDL_SOURCE_IS_NONPAGED_POOL)
-            {
-                MmUnlockPages(WSKBuffer->Mdl);
-            }
-
+            MmUnlockPages(WSKBuffer->Mdl);
             IoFreeMdl(WSKBuffer->Mdl);
             WSKBuffer->Mdl = nullptr;
         }
@@ -206,15 +203,13 @@ WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
 
     do 
     {
-#       pragma warning(suppress: 4996)
-        WSKContext = static_cast<WSK_CONTEXT_IRP*>(ExAllocatePoolWithTag(NonPagedPoolNx,
+        WSKContext = static_cast<WSK_CONTEXT_IRP*>(ExAllocatePoolZero(NonPagedPool,
             sizeof(WSK_CONTEXT_IRP), WSK_POOL_TAG));
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             break;
         }
-        RtlSecureZeroMemory(WSKContext, sizeof(WSK_CONTEXT_IRP));
 
         WSKContext->CompletionRoutine = CompletionRoutine;
         WSKContext->Context = Context;
@@ -332,8 +327,13 @@ VOID NTAPI WSKEmptyAsync(
     }
 }
 
-NTSTATUS WSKAPI WSKSocketUnsafe(
-    _Out_ PWSK_SOCKET*      Socket,
+NTSTATUS WSKAPI WSKCloseSocketUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType
+);
+
+static NTSTATUS WSKAPI WSKSocketUnsafeDownlevel(
+    _Out_ PWSK_SOCKET* Socket,
     _In_  ADDRESS_FAMILY    AddressFamily,
     _In_  USHORT            SocketType,
     _In_  ULONG             Protocol,
@@ -346,14 +346,6 @@ NTSTATUS WSKAPI WSKSocketUnsafe(
 
     do
     {
-        *Socket = nullptr;
-
-        if (!InterlockedCompareExchange(&_Initialized, true, true))
-        {
-            Status = STATUS_NDIS_ADAPTER_NOT_READY;
-            break;
-        }
-
         WSKContext = WSKAllocContextIRP(nullptr, nullptr);
         if (WSKContext == nullptr)
         {
@@ -417,7 +409,92 @@ NTSTATUS WSKAPI WSKSocketUnsafe(
     return Status;
 }
 
-NTSTATUS WSKAPI WSKCloseSocketUnsafe(
+NTSTATUS WSKAPI WSKSocketUnsafe(
+    _Out_ PWSK_SOCKET*      Socket,
+    _In_  ADDRESS_FAMILY    AddressFamily,
+    _In_  USHORT            SocketType,
+    _In_  ULONG             Protocol,
+    _In_  ULONG             Flags,
+    _In_opt_ PSECURITY_DESCRIPTOR SecurityDescriptor
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    *Socket = nullptr;
+
+    if (!InterlockedCompareExchange(&_Initialized, true, true))
+    {
+        Status = STATUS_NDIS_ADAPTER_NOT_READY;
+        return Status;
+    }
+
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+    Status = WSKSocketUnsafeDownlevel(Socket, AddressFamily, SocketType, Protocol, Flags, SecurityDescriptor);
+#else
+    WSK_SOCKET* Stream  = nullptr;
+    WSK_SOCKET* Listen  = nullptr;
+    WSK_SOCKET* Connect = nullptr;
+
+    do
+    {
+        if (Flags != WSK_FLAG_STREAM_SOCKET)
+        {
+            Status = WSKSocketUnsafeDownlevel(Socket, AddressFamily, SocketType, Protocol, Flags, SecurityDescriptor);
+            break;
+        }
+
+        Stream = static_cast<PWSK_SOCKET>(ExAllocatePoolZero(NonPagedPool,
+            sizeof(WSK_STREAM_SOCKET_WIN7), WSK_POOL_TAG));
+        if (Stream == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        Status = WSKSocketUnsafeDownlevel(&Listen, AddressFamily, SocketType, Protocol, WSK_FLAG_LISTEN_SOCKET, SecurityDescriptor);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
+        Status = WSKSocketUnsafeDownlevel(&Connect, AddressFamily, SocketType, Protocol, WSK_FLAG_CONNECTION_SOCKET, SecurityDescriptor);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
+        auto StreamImpl = reinterpret_cast<WSK_STREAM_SOCKET_WIN7*>(Stream);
+        StreamImpl->Mode    = 0;
+        StreamImpl->Listen  = Listen;
+        StreamImpl->Connect = Connect;
+
+        *Socket = Stream;
+
+    } while (false);
+
+    if (!NT_SUCCESS(Status))
+    {
+        if (Listen)
+        {
+            WSKCloseSocketUnsafe(Listen, WSK_FLAG_LISTEN_SOCKET);
+        }
+
+        if (Connect)
+        {
+            WSKCloseSocketUnsafe(Connect, WSK_FLAG_CONNECTION_SOCKET);
+        }
+
+        if (Stream)
+        {
+            ExFreePoolWithTag(Stream, WSK_POOL_TAG);
+        }
+    }
+#endif
+
+    return Status;
+}
+
+static NTSTATUS WSKAPI WSKCloseSocketUnsafeDownlevel(
     _In_ PWSK_SOCKET Socket
 )
 {
@@ -426,18 +503,6 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
 
     do
     {
-        if (!InterlockedCompareExchange(&_Initialized, true, true))
-        {
-            Status = STATUS_NDIS_ADAPTER_NOT_READY;
-            break;
-        }
-
-        if (Socket == nullptr)
-        {
-            Status = STATUS_INVALID_PARAMETER;
-            break;
-        }
-
         WSKContext = WSKAllocContextIRP(nullptr, nullptr);
         if (WSKContext == nullptr)
         {
@@ -447,10 +512,7 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
 
         auto Dispatch = static_cast<const WSK_PROVIDER_BASIC_DISPATCH*>(Socket->Dispatch);
 
-        Status = Dispatch->WskCloseSocket(
-            Socket,
-            WSKContext->Irp);
-
+        Status = Dispatch->WskCloseSocket(Socket, WSKContext->Irp);
         if (Status == STATUS_PENDING)
         {
             LARGE_INTEGER Timeout{};
@@ -470,7 +532,59 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
     return Status;
 }
 
-NTSTATUS WSKAPI WSKControlSocketUnsafe(
+NTSTATUS WSKAPI WSKCloseSocketUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType
+)
+{
+    UNREFERENCED_PARAMETER(WskSocketType);
+
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    if (!InterlockedCompareExchange(&_Initialized, true, true))
+    {
+        Status = STATUS_NDIS_ADAPTER_NOT_READY;
+        return Status;
+    }
+
+    if (Socket == nullptr)
+    {
+        Status = STATUS_INVALID_PARAMETER;
+        return Status;
+    }
+
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+    Status = WSKCloseSocketUnsafeDownlevel(Socket);
+#else
+    do
+    {
+        if (WskSocketType != WSK_FLAG_STREAM_SOCKET)
+        {
+            Status = WSKCloseSocketUnsafeDownlevel(Socket);
+            break;
+        }
+
+        Status = WSKCloseSocketUnsafeDownlevel(reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Listen);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
+        Status = WSKCloseSocketUnsafeDownlevel(reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
+        ExFreePoolWithTag(Socket, WSK_POOL_TAG);
+
+    } while (false);
+#endif
+
+    return Status;
+}
+
+static NTSTATUS WSKAPI WSKControlSocketUnsafeDownlevel(
     _In_ PWSK_SOCKET    Socket,
     _In_ ULONG          WskSocketType,
     _In_ WSK_CONTROL_SOCKET_TYPE RequestType,
@@ -490,18 +604,6 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
 
     do
     {
-        if (!InterlockedCompareExchange(&_Initialized, true, true))
-        {
-            Status = STATUS_NDIS_ADAPTER_NOT_READY;
-            break;
-        }
-
-        if (Socket == nullptr)
-        {
-            Status = STATUS_INVALID_PARAMETER;
-            break;
-        }
-
         if (RequestType == WskGetOption && OptionLevel == SOL_SOCKET && ControlCode == SO_TYPE)
         {
             if (OutputSize != sizeof(int) || OutputBuffer == nullptr)
@@ -533,6 +635,12 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
             if (ControlCode == SIO_WSK_SET_REMOTE_ADDRESS ||
                 ControlCode == SIO_WSK_SET_SENDTO_ADDRESS)
             {
+                if (WskSocketType != WSK_FLAG_DATAGRAM_SOCKET)
+                {
+                    Status = STATUS_INVALID_DEVICE_REQUEST;
+                    break;
+                }
+
                 auto RemoteAddress = static_cast<PSOCKADDR>(InputBuffer);
                 if (RemoteAddress == nullptr || InputSize < sizeof SOCKADDR)
                 {
@@ -555,6 +663,8 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
                 {
                     break;
                 }
+
+                // Not break;
             }
         }
 
@@ -601,7 +711,69 @@ NTSTATUS WSKAPI WSKControlSocketUnsafe(
     return Status;
 }
 
-NTSTATUS WSKAPI WSKBindUnsafe(
+NTSTATUS WSKAPI WSKControlSocketUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType,
+    _In_ WSK_CONTROL_SOCKET_TYPE RequestType,
+    _In_ ULONG          ControlCode,
+    _In_ ULONG          OptionLevel,
+    _In_reads_bytes_opt_(InputSize)     PVOID InputBuffer,
+    _In_ SIZE_T         InputSize,
+    _Out_writes_bytes_opt_(OutputSize)  PVOID OutputBuffer,
+    _In_ SIZE_T         OutputSize,
+    _Out_opt_ SIZE_T* OutputSizeReturned,
+    _In_opt_  WSKOVERLAPPED* Overlapped,
+    _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    if (!InterlockedCompareExchange(&_Initialized, true, true))
+    {
+        Status = STATUS_NDIS_ADAPTER_NOT_READY;
+        return Status;
+    }
+
+    if (Socket == nullptr)
+    {
+        Status = STATUS_INVALID_PARAMETER;
+        return Status;
+    }
+
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+    Status = WSKControlSocketUnsafeDownlevel(Socket, WskSocketType, RequestType, ControlCode, OptionLevel,
+        InputBuffer, InputSize, OutputBuffer, OutputSize, OutputSizeReturned, Overlapped, CompletionRoutine);
+#else
+    do
+    {
+        if (WskSocketType != WSK_FLAG_STREAM_SOCKET)
+        {
+            Status = WSKControlSocketUnsafeDownlevel(Socket, WskSocketType, RequestType, ControlCode, OptionLevel,
+                InputBuffer, InputSize, OutputBuffer, OutputSize, OutputSizeReturned, Overlapped, CompletionRoutine);
+            break;
+        }
+
+        if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode == 2)
+        {
+            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
+            WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
+        }
+        else
+        {
+            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Listen;
+            WskSocketType = WSK_FLAG_LISTEN_SOCKET;
+        }
+
+        Status = WSKControlSocketUnsafeDownlevel(Socket, WskSocketType, RequestType, ControlCode, OptionLevel,
+            InputBuffer, InputSize, OutputBuffer, OutputSize, OutputSizeReturned, Overlapped, CompletionRoutine);
+
+    } while (false);
+#endif
+
+    return Status;
+}
+
+static NTSTATUS WSKAPI WSKBindUnsafeDownlevel(
     _In_ PWSK_SOCKET Socket,
     _In_ ULONG       WskSocketType,
     _In_ PSOCKADDR   LocalAddress,
@@ -613,24 +785,7 @@ NTSTATUS WSKAPI WSKBindUnsafe(
 
     do
     {
-        if (!InterlockedCompareExchange(&_Initialized, true, true))
-        {
-            Status = STATUS_NDIS_ADAPTER_NOT_READY;
-            break;
-        }
-
-        if (Socket == nullptr || LocalAddress == nullptr || (LocalAddressLength < sizeof SOCKADDR))
-        {
-            Status = STATUS_INVALID_PARAMETER;
-            break;
-        }
-
-        if ((LocalAddress->sa_family == AF_INET  && LocalAddressLength < sizeof SOCKADDR_IN) ||
-            (LocalAddress->sa_family == AF_INET6 && LocalAddressLength < sizeof SOCKADDR_IN6))
-        {
-            Status = STATUS_INVALID_PARAMETER;
-            break;
-        }
+        UNREFERENCED_PARAMETER(LocalAddressLength);
 
         PFN_WSK_BIND WSKBindRoutine = nullptr;
 
@@ -645,14 +800,16 @@ NTSTATUS WSKAPI WSKBindUnsafe(
         case WSK_FLAG_CONNECTION_SOCKET:
             WSKBindRoutine = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskBind;
             break;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         case WSK_FLAG_STREAM_SOCKET:
             WSKBindRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskBind;
             break;
+#endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         }
 
         if (WSKBindRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -684,6 +841,49 @@ NTSTATUS WSKAPI WSKBindUnsafe(
         WSKFreeContextIRP(WSKContext);
 
     } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKBindUnsafe(
+    _In_ PWSK_SOCKET Socket,
+    _In_ ULONG       WskSocketType,
+    _In_ PSOCKADDR   LocalAddress,
+    _In_ SIZE_T      LocalAddressLength
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    if (!InterlockedCompareExchange(&_Initialized, true, true))
+    {
+        Status = STATUS_NDIS_ADAPTER_NOT_READY;
+        return Status;
+    }
+
+    if (Socket == nullptr || LocalAddress == nullptr || (LocalAddressLength < sizeof SOCKADDR))
+    {
+        Status = STATUS_INVALID_PARAMETER;
+        return Status;
+    }
+
+    if ((LocalAddress->sa_family == AF_INET  && LocalAddressLength < sizeof SOCKADDR_IN) ||
+        (LocalAddress->sa_family == AF_INET6 && LocalAddressLength < sizeof SOCKADDR_IN6))
+    {
+        Status = STATUS_INVALID_PARAMETER;
+        return Status;
+    }
+
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+    Status = WSKBindUnsafeDownlevel(Socket, WskSocketType, LocalAddress, LocalAddressLength);
+#else
+    if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+    {
+        Socket        = reinterpret_cast<PWSK_STREAM_SOCKET_WIN7>(Socket)->Listen;
+        WskSocketType = WSK_FLAG_LISTEN_SOCKET;
+    }
+
+    Status = WSKBindUnsafeDownlevel(Socket, WskSocketType, LocalAddress, LocalAddressLength);
+#endif
 
     return Status;
 }
@@ -724,6 +924,20 @@ NTSTATUS WSKAPI WSKAcceptUnsafe(
             break;
         }
 
+#if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+        {
+            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode != 1)
+            {
+                Status = STATUS_INVALID_DEVICE_REQUEST;
+                break;
+            }
+
+            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Listen;
+            WskSocketType = WSK_FLAG_LISTEN_SOCKET;
+        }
+#endif // #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
         PFN_WSK_ACCEPT WSKAcceptRoutine = nullptr;
 
         switch (WskSocketType)
@@ -731,14 +945,16 @@ NTSTATUS WSKAPI WSKAcceptUnsafe(
         case WSK_FLAG_LISTEN_SOCKET:
             WSKAcceptRoutine = static_cast<const WSK_PROVIDER_LISTEN_DISPATCH*>(Socket->Dispatch)->WskAccept;
             break;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         case WSK_FLAG_STREAM_SOCKET:
             WSKAcceptRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskAccept;
             break;
+#endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         }
 
         if (WSKAcceptRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -782,7 +998,8 @@ NTSTATUS WSKAPI WSKAcceptUnsafe(
     return Status;
 }
 
-NTSTATUS WSKAPI WSKListenUnsafe(
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+static NTSTATUS WSKAPI WSKListenUnsafeDownlevel(
     _In_ PWSK_SOCKET    Socket,
     _In_ ULONG          WskSocketType
 )
@@ -792,18 +1009,6 @@ NTSTATUS WSKAPI WSKListenUnsafe(
 
     do
     {
-        if (!InterlockedCompareExchange(&_Initialized, true, true))
-        {
-            Status = STATUS_NDIS_ADAPTER_NOT_READY;
-            break;
-        }
-
-        if (Socket == nullptr)
-        {
-            Status = STATUS_INVALID_PARAMETER;
-            break;
-        }
-
         PFN_WSK_LISTEN WSKListenRoutine = nullptr;
 
         switch (WskSocketType)
@@ -815,7 +1020,7 @@ NTSTATUS WSKAPI WSKListenUnsafe(
 
         if (WSKListenRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -848,6 +1053,49 @@ NTSTATUS WSKAPI WSKListenUnsafe(
 
     return Status;
 }
+#endif
+
+NTSTATUS WSKAPI WSKListenUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType
+)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    if (!InterlockedCompareExchange(&_Initialized, true, true))
+    {
+        Status = STATUS_NDIS_ADAPTER_NOT_READY;
+        return Status;
+}
+
+    if (Socket == nullptr)
+    {
+        Status = STATUS_INVALID_PARAMETER;
+        return Status;
+    }
+
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+    Status = WSKListenUnsafeDownlevel(Socket, WskSocketType);
+#else
+    UNREFERENCED_PARAMETER(Socket);
+    UNREFERENCED_PARAMETER(WskSocketType);
+
+    if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+    {
+        if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode != 0)
+        {
+            Status = STATUS_INVALID_DEVICE_REQUEST;
+            return Status;
+        }
+        else
+        {
+            reinterpret_cast<WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode = 1;
+        }
+    }
+#endif
+
+    return Status;
+}
 
 NTSTATUS WSKAPI WSKConnectUnsafe(
     _In_ PWSK_SOCKET    Socket,
@@ -861,15 +1109,6 @@ NTSTATUS WSKAPI WSKConnectUnsafe(
 
     do
     {
-        SOCKADDR_STORAGE LocalAddress{};
-        LocalAddress.ss_family = RemoteAddress->sa_family;
-
-        Status = WSKBindUnsafe(Socket, WskSocketType, reinterpret_cast<PSOCKADDR>(&LocalAddress), sizeof LocalAddress);
-        if (!NT_SUCCESS(Status))
-        {
-            break;
-        }
-
         if (!InterlockedCompareExchange(&_Initialized, true, true))
         {
             Status = STATUS_NDIS_ADAPTER_NOT_READY;
@@ -889,6 +1128,33 @@ NTSTATUS WSKAPI WSKConnectUnsafe(
             break;
         }
 
+#if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+        {
+            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode != 0)
+            {
+                Status = STATUS_INVALID_DEVICE_REQUEST;
+                break;
+            }
+            else
+            {
+                reinterpret_cast<WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode = 2;
+            }
+
+            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
+            WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
+        }
+#endif // #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
+        SOCKADDR_STORAGE LocalAddress{};
+        LocalAddress.ss_family = RemoteAddress->sa_family;
+
+        Status = WSKBindUnsafe(Socket, WskSocketType, reinterpret_cast<PSOCKADDR>(&LocalAddress), sizeof LocalAddress);
+        if (!NT_SUCCESS(Status))
+        {
+            break;
+        }
+
         PFN_WSK_CONNECT WSKConnectRoutine = nullptr;
 
         switch (WskSocketType)
@@ -896,14 +1162,16 @@ NTSTATUS WSKAPI WSKConnectUnsafe(
         case WSK_FLAG_CONNECTION_SOCKET:
             WSKConnectRoutine = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskConnect;
             break;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         case WSK_FLAG_STREAM_SOCKET:
             WSKConnectRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskConnect;
             break;
+#endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         }
 
         if (WSKConnectRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -963,6 +1231,20 @@ NTSTATUS WSKAPI WSKDisconnectUnsafe(
             break;
         }
 
+#if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+        {
+            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode != 2)
+            {
+                Status = STATUS_INVALID_DEVICE_REQUEST;
+                break;
+            }
+
+            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
+            WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
+        }
+#endif // #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
         PFN_WSK_DISCONNECT WSKDisconnectRoutine = nullptr;
 
         switch (WskSocketType)
@@ -970,14 +1252,16 @@ NTSTATUS WSKAPI WSKDisconnectUnsafe(
         case WSK_FLAG_CONNECTION_SOCKET:
             WSKDisconnectRoutine = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskDisconnect;
             break;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         case WSK_FLAG_STREAM_SOCKET:
             WSKDisconnectRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskDisconnect;
             break;
+#endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         }
 
         if (WSKDisconnectRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -1047,6 +1331,20 @@ NTSTATUS WSKAPI WSKSendUnsafe(
             break;
         }
 
+#if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+        {
+            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode != 2)
+            {
+                Status = STATUS_INVALID_DEVICE_REQUEST;
+                break;
+            }
+
+            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
+            WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
+        }
+#endif // #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
         PFN_WSK_SEND WSKSendRoutine = nullptr;
 
         switch (WskSocketType)
@@ -1054,14 +1352,16 @@ NTSTATUS WSKAPI WSKSendUnsafe(
         case WSK_FLAG_CONNECTION_SOCKET:
             WSKSendRoutine = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskSend;
             break;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         case WSK_FLAG_STREAM_SOCKET:
             WSKSendRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskSend;
             break;
+#endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         }
 
         if (WSKSendRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -1175,7 +1475,7 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
 
         if (WSKSendToRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -1251,6 +1551,20 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
             break;
         }
 
+#if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+        {
+            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode != 2)
+            {
+                Status = STATUS_INVALID_DEVICE_REQUEST;
+                break;
+            }
+
+            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
+            WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
+        }
+#endif // #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
         PFN_WSK_RECEIVE WSKReceiveRoutine = nullptr;
 
         switch (WskSocketType)
@@ -1258,14 +1572,16 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
         case WSK_FLAG_CONNECTION_SOCKET:
             WSKReceiveRoutine = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskReceive;
             break;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         case WSK_FLAG_STREAM_SOCKET:
             WSKReceiveRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskReceive;
             break;
+#endif // #if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
         }
 
         if (WSKReceiveRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -1372,7 +1688,7 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
 
         if (WSKReceiveFromRoutine == nullptr)
         {
-            Status = STATUS_INVALID_PARAMETER;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
         }
 
@@ -1467,6 +1783,8 @@ NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
 
             break;
         }
+
+        ExInitializeDriverRuntime(DrvRtPoolNxOptIn);
 
         WSKSocketsAVLTableInitialize();
 
@@ -1912,7 +2230,7 @@ NTSTATUS WSKAPI WSKSocket(
 
         if (!WSKSocketsAVLTableInsert(Socket, Socket_, static_cast<USHORT>(WSKSocketType)))
         {
-            WSKCloseSocketUnsafe(Socket_);
+            WSKCloseSocketUnsafe(Socket_, WSKSocketType);
             Status = STATUS_INSUFFICIENT_RESOURCES;
         }
 
@@ -1955,7 +2273,7 @@ NTSTATUS WSKAPI WSKCloseSocket(
             break;
         }
 
-        Status = WSKCloseSocketUnsafe(SocketObject.Socket);
+        Status = WSKCloseSocketUnsafe(SocketObject.Socket, SocketObject.SocketType);
         if (!NT_SUCCESS(Status))
         {
             break;
@@ -2258,7 +2576,7 @@ NTSTATUS WSKAPI WSKAccpet(
 
         if (!WSKSocketsAVLTableInsert(SocketClient, SocketClient_, static_cast<USHORT>(WSK_FLAG_CONNECTION_SOCKET)))
         {
-            WSKCloseSocketUnsafe(SocketClient_);
+            WSKCloseSocketUnsafe(SocketClient_, WSK_FLAG_CONNECTION_SOCKET);
             Status = STATUS_INSUFFICIENT_RESOURCES;
         }
 

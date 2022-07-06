@@ -2,9 +2,6 @@
 #include "berkeley.h"
 #include "socket.h"
 
-#pragma warning(push)
-#pragma warning(disable: 4996)
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -198,14 +195,12 @@ static NTSTATUS WSKAPI convert_addrinfo_to_addrinfoex(
             break;
         }
 
-        Result = (addrinfoexW*)ExAllocatePoolWithTag(PagedPool, sizeof addrinfoexW, WSK_POOL_TAG);
+        Result = (addrinfoexW*)ExAllocatePoolZero(PagedPool, sizeof addrinfoexW, WSK_POOL_TAG);
         if (Result == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             break;
         }
-
-        RtlSecureZeroMemory(Result, sizeof addrinfoexW);
 
         Result->ai_flags    = (source->ai_flags & ~AI_EXTENDED);
         Result->ai_family   = source->ai_family;
@@ -228,7 +223,7 @@ static NTSTATUS WSKAPI convert_addrinfo_to_addrinfoex(
 
         if (source->ai_addr)
         {
-            Address = (sockaddr*)ExAllocatePoolWithTag(PagedPool, source->ai_addrlen, WSK_POOL_TAG);
+            Address = (sockaddr*)ExAllocatePoolZero(PagedPool, source->ai_addrlen, WSK_POOL_TAG);
             if (Address == nullptr)
             {
                 Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -287,14 +282,12 @@ static NTSTATUS WSKAPI convert_addrinfoex_to_addrinfo(
             break;
         }
 
-        Result = (addrinfo*)ExAllocatePoolWithTag(PagedPool, sizeof addrinfo, WSK_POOL_TAG);
+        Result = (addrinfo*)ExAllocatePoolZero(PagedPool, sizeof addrinfo, WSK_POOL_TAG);
         if (Result == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             break;
         }
-
-        RtlSecureZeroMemory(Result, sizeof addrinfo);
 
         Result->ai_flags    = (source->ai_flags & ~AI_EXTENDED);
         Result->ai_family   = source->ai_family;
@@ -317,7 +310,7 @@ static NTSTATUS WSKAPI convert_addrinfoex_to_addrinfo(
 
         if (source->ai_addr)
         {
-            Address = (sockaddr*)ExAllocatePoolWithTag(PagedPool, source->ai_addrlen, WSK_POOL_TAG);
+            Address = (sockaddr*)ExAllocatePoolZero(PagedPool, source->ai_addrlen, WSK_POOL_TAG);
             if (Address == nullptr)
             {
                 Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -471,7 +464,7 @@ int WSKAPI getnameinfo(
     {
         void* NameBuffer = nullptr;
 
-        NameBuffer = ExAllocatePoolWithTag(PagedPool, NI_MAXHOST * sizeof(wchar_t), WSK_POOL_TAG);
+        NameBuffer = ExAllocatePoolZero(PagedPool, NI_MAXHOST * sizeof(wchar_t), WSK_POOL_TAG);
         if (NameBuffer == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -481,7 +474,7 @@ int WSKAPI getnameinfo(
         RtlInitEmptyUnicodeString(&HostName, static_cast<PWCH>(NameBuffer),
             static_cast<USHORT>(NI_MAXHOST * sizeof(wchar_t)));
 
-        NameBuffer = ExAllocatePoolWithTag(PagedPool, NI_MAXSERV * sizeof(wchar_t), WSK_POOL_TAG);
+        NameBuffer = ExAllocatePoolZero(PagedPool, NI_MAXSERV * sizeof(wchar_t), WSK_POOL_TAG);
         if (NameBuffer == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -658,5 +651,3 @@ unsigned short WSKAPI ntohs(
 #ifdef __cplusplus
 }
 #endif
-
-#pragma warning(pop)
