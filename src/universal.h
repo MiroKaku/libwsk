@@ -11,4 +11,4 @@
 #include <stdlib.h>
 
 // Global
-static constexpr auto WSK_POOL_TAG = ' KSW'; // 'WSK '
+static const ULONG WSK_POOL_TAG = ' KSW'; // 'WSK '

@@ -1749,6 +1749,10 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
 //////////////////////////////////////////////////////////////////////////
 // Public  Function
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 VOID WSKAPI WSKSetLastError(
     _In_ NTSTATUS Status
 )
@@ -2911,3 +2915,7 @@ NTSTATUS WSKAPI WSKReceiveFrom(
 
     return Status;
 }
+
+#ifdef __cplusplus
+}
+#endif

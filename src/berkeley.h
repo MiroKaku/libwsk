@@ -1,5 +1,5 @@
 #pragma once
-#include "libwsk.h"
+#include <wsk.h>
 
 /*
  * This is used instead of -1, since the
@@ -17,7 +17,8 @@
 #define SOCKET_SUCCESS  (0)
 #endif
 
-using socklen_t = int;
+typedef int         socklen_t;
+typedef UINT_PTR    SOCKET;
 
 /* Socket function prototypes */
 

@@ -1,21 +1,21 @@
 #pragma once
 #include <wsk.h>
 
-using SOCKET = UINT_PTR;
+typedef UINT_PTR SOCKET;
 
 #ifndef WSK_INVALID_SOCKET
-#  define WSK_INVALID_SOCKET static_cast<SOCKET>(~0)
+#  define WSK_INVALID_SOCKET        ((SOCKET)(~0))
 #endif
 
 #ifndef WSK_FLAG_INVALID_SOCKET
-#    define WSK_FLAG_INVALID_SOCKET 0xffffffff
+#    define WSK_FLAG_INVALID_SOCKET ((ULONG)0xffffffff)
 #endif
 
 #ifndef WSK_FLAG_STREAM_SOCKET
-#   define WSK_FLAG_STREAM_SOCKET   0x00000008
+#   define WSK_FLAG_STREAM_SOCKET   ((ULONG)0x00000008)
 #endif
 
-struct WSKOVERLAPPED
+typedef struct _WSKOVERLAPPED
 {
     ULONG_PTR Internal;
     ULONG_PTR InternalHigh;
@@ -28,13 +28,20 @@ struct WSKOVERLAPPED
     } DUMMYUNIONNAME;
 
     KEVENT Event;
-};
+}WSKOVERLAPPED, *PWSKOVERLAPPED;
+typedef const WSKOVERLAPPED* PCWSKOVERLAPPED;
 
-using LPWSKOVERLAPPED_COMPLETION_ROUTINE = VOID(WSKAPI*)(
+typedef VOID(WSKAPI* LPWSKOVERLAPPED_COMPLETION_ROUTINE)(
     _In_ NTSTATUS       Status,
     _In_ ULONG_PTR      Bytes,
     _In_ WSKOVERLAPPED* Overlapped
     );
+
+/* WSK Socket function prototypes */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 VOID WSKAPI WSKSetLastError(
     _In_ NTSTATUS Status
@@ -42,11 +49,12 @@ VOID WSKAPI WSKSetLastError(
 
 NTSTATUS WSKAPI WSKGetLastError();
 
-struct WSKDATA
+typedef struct _WSKDATA
 {
     UINT16 HighestVersion;
     UINT16 LowestVersion;
-};
+}WSKDATA, *PWSKDATA;
+typedef const WSKDATA* PCWSKDATA;
 
 NTSTATUS WSKAPI WSKStartup(
     _In_  UINT16   Version,
@@ -92,7 +100,7 @@ NTSTATUS WSKAPI WSKGetNameInfo(
     _In_ ULONG      Flags
 );
 
-constexpr auto WSK_MAX_ADDRESS_STRING_LENGTH = 64u;
+#define WSK_MAX_ADDRESS_STRING_LENGTH ((UINT32)64u)
 
 NTSTATUS WSKAPI WSKAddressToString(
     _In_reads_bytes_(AddressLength) SOCKADDR* SockAddress,
@@ -221,3 +229,7 @@ NTSTATUS WSKAPI WSKReceiveFrom(
     _In_opt_  WSKOVERLAPPED* Overlapped,
     _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 );
+
+#ifdef __cplusplus
+}
+#endif

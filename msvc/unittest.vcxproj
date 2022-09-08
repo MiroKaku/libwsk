@@ -239,7 +239,7 @@
     <Inf Include="..\test\libwsk.inf" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\test\main.cpp" />
+    <ClCompile Include="..\test\main.c" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="libwsk.vcxproj">

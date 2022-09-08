@@ -1,6 +1,6 @@
 #include "universal.h"
 #include "berkeley.h"
-#include "socket.h"
+#include "libwsk.h"
 
 #ifdef __cplusplus
 extern "C" {
