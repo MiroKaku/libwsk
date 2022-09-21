@@ -175,8 +175,8 @@ int WSKAPI getsockopt(
 }
 
 static NTSTATUS WSKAPI convert_addrinfo_to_addrinfoex(
-    _In_ addrinfoexW**      target,
-    _In_opt_ const addrinfo*    source
+    _In_ addrinfoexW** target,
+    _In_opt_ const addrinfo* source
 )
 {
     NTSTATUS     Status  = STATUS_SUCCESS;
@@ -229,6 +229,7 @@ static NTSTATUS WSKAPI convert_addrinfo_to_addrinfoex(
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
             }
+            memcpy(Address, source->ai_addr, source->ai_addrlen);
 
             Result->ai_addr = Address;
         }
@@ -316,6 +317,7 @@ static NTSTATUS WSKAPI convert_addrinfoex_to_addrinfo(
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
             }
+            memcpy(Address, source->ai_addr, source->ai_addrlen);
 
             Result->ai_addr = Address;
         }
