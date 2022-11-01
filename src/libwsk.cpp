@@ -2530,7 +2530,7 @@ NTSTATUS WSKAPI WSKBind(
     return Status;
 }
 
-NTSTATUS WSKAPI WSKAccpet(
+NTSTATUS WSKAPI WSKAccept(
     _In_  SOCKET        Socket,
     _Out_ SOCKET*       SocketClient,
     _Out_opt_ PSOCKADDR LocalAddress,

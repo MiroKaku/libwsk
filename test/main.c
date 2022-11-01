@@ -153,11 +153,11 @@ VOID WSKServerThread(
             {
                 if (SocketClient == WSK_INVALID_SOCKET)
                 {
-                    Status = WSKAccpet(Socket, &SocketClient, nullptr, 0u, (SOCKADDR*)&FromAddress, sizeof FromAddress);
+                    Status = WSKAccept(Socket, &SocketClient, nullptr, 0u, (SOCKADDR*)&FromAddress, sizeof FromAddress);
                     if (!NT_SUCCESS(Status))
                     {
                         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                            "[WSK] [Server] WSKAccpet failed: 0x%08X.\n",
+                            "[WSK] [Server] WSKAccept failed: 0x%08X.\n",
                             Status);
 
                         break;

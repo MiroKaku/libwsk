@@ -75,7 +75,7 @@ SOCKET WSKAPI accept(
 )
 {
     SOCKET   Socket = WSK_INVALID_SOCKET;
-    NTSTATUS Status = WSKAccpet(s, &Socket, nullptr, 0, addr, addrlen ? *addrlen : 0);
+    NTSTATUS Status = WSKAccept(s, &Socket, nullptr, 0, addr, addrlen ? *addrlen : 0);
     return WSKSetLastError(Status), Socket;
 }
 
