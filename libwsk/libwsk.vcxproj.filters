@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="universal.cpp" />
+    <ClCompile Include="berkeley.cpp">
+      <Filter>libwsk</Filter>
+    </ClCompile>
+    <ClCompile Include="libwsk.cpp">
+      <Filter>libwsk</Filter>
+    </ClCompile>
+    <ClCompile Include="socket.cpp">
+      <Filter>libwsk</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="universal.h" />
+    <ClInclude Include="berkeley.h">
+      <Filter>libwsk</Filter>
+    </ClInclude>
+    <ClInclude Include="libwsk.h">
+      <Filter>libwsk</Filter>
+    </ClInclude>
+    <ClInclude Include="socket.h">
+      <Filter>libwsk</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="libwsk">
+      <UniqueIdentifier>{b32961e5-e498-4083-8530-02ebfe13e1c4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

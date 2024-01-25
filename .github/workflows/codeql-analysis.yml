@@ -23,7 +23,7 @@ on:
 jobs:
   analyze:
     name: Analyze
-    runs-on: windows-2019
+    runs-on: Windows-2022
     permissions:
       actions: read
       contents: read
@@ -58,7 +58,7 @@ jobs:
 
     - name: Build
       shell: cmd
-      run: call .\.github\workflows\build.bat
+      run: call .\BuildAllTargets.cmd
 
     # ℹ️ Command-line programs to run using the OS shell.
     # 📚 https://git.io/JvXDl
