@@ -31,6 +31,9 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <FilesToPackage Include="$(TargetPath)" />
+  </ItemGroup>
+  <ItemGroup>
     <Inf Include="libwsk.inf" />
   </ItemGroup>
   <ItemGroup>
