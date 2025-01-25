@@ -71,7 +71,6 @@ jobs:
           if %ERRORLEVEL% NEQ 0 exit /B %ERRORLEVEL%
 
       - name: Build Zip
-        if: contains(github.ref, 'tags/')
         shell: cmd
         run: |
           7z a -tzip -r "./Musa.libwsk-${{ env.BuildVersion }}.zip" "./Publish/*"
