@@ -5,6 +5,8 @@ on:
     branches: [main]
   push:
     branches: [main]
+    tags:
+      - v*
   workflow_dispatch:
 
 concurrency:
@@ -66,7 +68,7 @@ jobs:
         shell: cmd
         run: |
           if "${{env.BuildVersion}}" NEQ "" (
-              NuGet pack .\libwsk.NuGet\libwsk-New.nuspec -Properties version=${{env.BuildVersion}};commit=%GITHUB_SHA%
+              NuGet pack .\libwsk.NuGet\Musa.libwsk-New.nuspec -Properties version=${{env.BuildVersion}};commit=%GITHUB_SHA%
           )
           if %ERRORLEVEL% NEQ 0 exit /B %ERRORLEVEL%
 
