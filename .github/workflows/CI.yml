@@ -73,7 +73,7 @@ jobs:
       - name: Build Zip
         shell: cmd
         run: |
-          7z a -tzip -r "./Musa.libwsk-${{ env.BuildVersion }}.zip" "./Publish/*"
+          7z a -tzip -r "./libwsk.zip" "./Publish/*"
 
       - name: Publish NuGet
         if: contains(github.ref, 'tags/')
@@ -86,8 +86,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libwsk
-          path: |
-            *.zip
+          path: Publish/
           if-no-files-found: error
 
       - name: Publish Version
