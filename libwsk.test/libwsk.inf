@@ -42,13 +42,13 @@ DefaultDestDir      = 12
 ; Each filename entry must specify the exact name of a file on the source disk.
 ;     You cannot use a %strkey% token to specify the file name.
 [SourceDisksFiles]
-libwsk.test.sys        = 1,,
+libwsk.Test.sys        = 1,,
 
 
 ; Copyfiles MSDN:
 ;     https://docs.microsoft.com/en-us/windows-hardware/drivers/install/inf-copyfiles-directive
 [Install.Drivers]
-libwsk.sys,libwsk.test.sys,,0x00004002 ; COPYFLG_NOSKIP | COPYFLG_IN_USE_RENAME
+libwsk.sys,libwsk.Test.sys,,0x00004002 ; COPYFLG_NOSKIP | COPYFLG_IN_USE_RENAME
 
 
 ; Delfiles MSDN:

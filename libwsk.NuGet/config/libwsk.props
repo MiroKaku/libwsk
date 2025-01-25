@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup Condition="'$(IsKernelModeToolset)'==''">
+    <IsKernelModeToolset Condition="'$(PlatformToolset.Contains(`KernelMode`))' == 'true'">true</IsKernelModeToolset>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- \Musa.libwsk\config\..\ -->
+    <Musa_libwsk_Root>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)\..'))</Musa_libwsk_Root>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Musa_libwsk_Include>$(Musa_libwsk_Root)\include</Musa_libwsk_Include>
+    <Musa_libwsk_Library>$(Musa_libwsk_Root)\lib\$(Configuration)\$(PlatformShortName)</Musa_libwsk_Library>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IncludePath>$(Musa_libwsk_Include);$(IncludePath)</IncludePath>
+    <LibraryPath>$(Musa_libwsk_Library);$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+
+</Project>

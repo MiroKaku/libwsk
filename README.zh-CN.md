@@ -3,7 +3,10 @@
 [![Actions Status](https://github.com/MiroKaku/libwsk/workflows/CodeQL/badge.svg)](https://github.com/MiroKaku/libwsk/actions)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/MiroKaku/libwsk/blob/master/LICENSE)
 ![Windows](https://img.shields.io/badge/Windows-7+-orange.svg)
-![Visual Studio](https://img.shields.io/badge/Visual%20Studio-2019-purple.svg)
+![Visual Studio](https://img.shields.io/badge/Visual%20Studio-2022-purple.svg)
+[![Downloads](https://img.shields.io/nuget/dt/libwsk?logo=NuGet&logoColor=blue)](https://www.nuget.org/packages/Musa.libwsk/)
+
+* [英文](README.md)
 
 ## 关于
 
@@ -11,17 +14,21 @@ libwsk 是对 WSK [(Winsock-Kernel)](https://docs.microsoft.com/en-us/windows-ha
 
 ## 编译和使用
 
-IDE：Visual Studio 2019 or higher
+### Windows 10 or higher
 
-> 如果目标系统是 Windows7，请设置这些。
-> ```
-> libwsk 属性页 -> Driver Settings -> Target OS Version = Windows 7
-> libwsk 属性页 -> Driver Settings -> Target Platform   = Desktop
-> ```
+右键单击该项目并选择“管理 NuGet 包”，然后搜索`Musa.Veil`并选择适合你的版本，最后单击“安装”。
 
-1. `git clone --recurse-submodules https://github.com/MiroKaku/libwsk.git`
-2. 打开 `msvc/libwsk.sln` 并编译它。
-3. 引入 `libwsk.lib` 到你的项目。参考 `unittest`。
+### Windows 7
+
+1. 首先修改设置：
+
+```
+libwsk 属性页 -> Driver Settings -> Target OS Version = Windows 7
+libwsk 属性页 -> Driver Settings -> Target Platform   = Desktop
+```
+
+2. 执行 BuildAllTargets.cmd
+
 
 ## 完成度
 

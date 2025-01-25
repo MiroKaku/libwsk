@@ -1,8 +1,8 @@
-// unnecessary, fix ReSharper's code analysis.
+﻿// unnecessary, fix ReSharper's code analysis.
 #pragma warning(suppress: 4117)
 #define _KERNEL_MODE 1
 
-#include <Veil/Veil.h>
+#include <Veil.h>
 #include <libwsk/libwsk.h>
 
 EXTERN_C_START
@@ -29,7 +29,7 @@ NTSTATUS StartWSKClient(
     _In_     USHORT  SocketType
 );
 
-VOID CloseWSKClient();
+VOID CloseWSKClient(void);
 
 //
 //////////////////////////////////////////////////////
@@ -495,7 +495,7 @@ NTSTATUS StartWSKServer(
     return Status;
 }
 
-VOID CloseWSKServer()
+VOID CloseWSKServer(void)
 {
     if (ServerSockets)
     {
@@ -525,7 +525,7 @@ VOID CloseWSKServer()
             }
         }
 
-        ExFreePoolWithTag(ServerThreads, POOL_TAG);
+        ExFreePoolWithTag((PVOID)ServerThreads, POOL_TAG);
 
         ServerThreads = nullptr;
     }
@@ -840,7 +840,7 @@ NTSTATUS StartWSKClient(
     return Status;
 }
 
-VOID CloseWSKClient()
+VOID CloseWSKClient(void)
 {
     if (ClientSocket != WSK_INVALID_SOCKET)
     {

@@ -5,6 +5,11 @@
  * This is used instead of -1, since the
  * SOCKET type is unsigned.
  */
+
+#ifndef WSK_INVALID_SOCKET
+#  define WSK_INVALID_SOCKET        ((SOCKET)(~0))
+#endif
+
 #ifndef INVALID_SOCKET
 #define INVALID_SOCKET  WSK_INVALID_SOCKET
 #endif

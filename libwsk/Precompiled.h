@@ -1,10 +1,10 @@
-#pragma once
+﻿#pragma once
 
 // unnecessary, fix ReSharper's code analysis.
 #pragma warning(suppress: 4117)
 #define _KERNEL_MODE 1
 
-#include <Veil/Veil.h>
+#include <Veil.h>
 
 // System
 #include <intrin.h>

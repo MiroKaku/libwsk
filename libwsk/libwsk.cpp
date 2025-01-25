@@ -1,5 +1,4 @@
-#include "universal.h"
-#include "libwsk.h"
+﻿#include "libwsk.h"
 #include "socket.h"
 
 #pragma comment(lib, "Netio.lib")
@@ -38,22 +37,22 @@ typedef struct _WSK_STREAM_SOCKET_WIN7 {
 //////////////////////////////////////////////////////////////////////////
 // Global  Data
 
-static volatile long _Initialized = false;
-static volatile long _lasterror   = STATUS_SUCCESS;
+static volatile long _Initialized  = false;
+static volatile long _LastNtStatus = STATUS_SUCCESS;
 
-WSK_CLIENT_DISPATCH WSKClientDispatch = {
+static WSK_CLIENT_DISPATCH WSKClientDispatch = {
     MAKE_WSK_VERSION(1, 0), // This default uses WSK version 1.0
     0,                      // Reserved
     nullptr                 // WskClientEvent callback is not required in WSK version 1.0
 };
 
-WSK_REGISTRATION WSKRegistration;
-WSK_PROVIDER_NPI WSKNPIProvider;
+static WSK_REGISTRATION WSKRegistration;
+static WSK_PROVIDER_NPI WSKNPIProvider;
 
 //////////////////////////////////////////////////////////////////////////
 // Private Function
 
-PLARGE_INTEGER WSKAPI WSKTimeoutToLargeInteger(
+static PLARGE_INTEGER WSKAPI WSKTimeoutToLargeInteger(
     _In_ UINT32 Milliseconds,
     _In_ PLARGE_INTEGER Timeout
 )
@@ -68,7 +67,7 @@ PLARGE_INTEGER WSKAPI WSKTimeoutToLargeInteger(
     return Timeout;
 }
 
-NTSTATUS WSKAPI WSKLockBuffer(
+static NTSTATUS WSKAPI WSKLockBuffer(
     _In_  PVOID    Buffer,
     _In_  SIZE_T   BufferLength,
     _Out_ PWSK_BUF WSKBuffer,
@@ -149,7 +148,7 @@ NTSTATUS WSKAPI WSKLockBuffer(
 //    return Status;
 //}
 
-VOID WSKAPI WSKUnlockBuffer(
+static VOID WSKAPI WSKUnlockBuffer(
     _In_  PWSK_BUF WSKBuffer
 )
 {
@@ -164,13 +163,13 @@ VOID WSKAPI WSKUnlockBuffer(
     }
 }
 
-NTSTATUS WSKCompletionRoutine(
+static NTSTATUS WSKCompletionRoutine(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp,
     _In_reads_opt_(_Inexpressible_("varies")) PVOID Context
 );
 
-VOID WSKAPI WSKFreeContextIRP(
+static VOID WSKAPI WSKFreeContextIRP(
     _In_ WSK_CONTEXT_IRP* WSKContext
 )
 {
@@ -188,7 +187,7 @@ VOID WSKAPI WSKFreeContextIRP(
     }
 }
 
-WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
+static WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
     _In_opt_ PVOID CompletionRoutine,
     _In_opt_ PVOID Context,
     _In_opt_ BOOLEAN OnlyReadInputBuffer = true,
@@ -260,7 +259,7 @@ WSK_CONTEXT_IRP* WSKAPI WSKAllocContextIRP(
     return WSKContext;
 }
 
-NTSTATUS WSKCompletionRoutine(
+static NTSTATUS WSKCompletionRoutine(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp,
     _In_reads_opt_(_Inexpressible_("varies")) PVOID Context
@@ -307,27 +306,27 @@ NTSTATUS WSKCompletionRoutine(
 
 static WSKOVERLAPPED WSKEmptyOverlapped;
 
-VOID NTAPI WSKEmptyAsync(
-    _In_ NTSTATUS  Status,
-    _In_ ULONG_PTR Bytes,
-    _In_ PVOID     Context
-)
-{
-    UNREFERENCED_PARAMETER(Status);
-    UNREFERENCED_PARAMETER(Bytes);
+//static VOID NTAPI WSKEmptyAsync(
+//    _In_ NTSTATUS  Status,
+//    _In_ ULONG_PTR Bytes,
+//    _In_ PVOID     Context
+//)
+//{
+//    UNREFERENCED_PARAMETER(Status);
+//    UNREFERENCED_PARAMETER(Bytes);
+//
+//    auto Overlapped = static_cast<WSKOVERLAPPED*>(Context);
+//    if (Overlapped != nullptr)
+//    {
+//        __debugbreak();
+//    }
+//    else
+//    {
+//        KeResetEvent(&Overlapped->Event);
+//    }
+//}
 
-    auto Overlapped = static_cast<WSKOVERLAPPED*>(Context);
-    if (Overlapped != nullptr)
-    {
-        __debugbreak();
-    }
-    else
-    {
-        KeResetEvent(&Overlapped->Event);
-    }
-}
-
-NTSTATUS WSKAPI WSKCloseSocketUnsafe(
+static NTSTATUS WSKAPI WSKCloseSocketUnsafe(
     _In_ PWSK_SOCKET    Socket,
     _In_ ULONG          WskSocketType
 );
@@ -342,11 +341,10 @@ static NTSTATUS WSKAPI WSKSocketUnsafeDownlevel(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
 
     do
     {
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        const auto WSKContext = WSKAllocContextIRP(nullptr, nullptr);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -368,7 +366,13 @@ static NTSTATUS WSKAPI WSKSocketUnsafeDownlevel(
             case SOCK_RAW:
                 Protocol = IPPROTO_RAW;
                 break;
+            default:
+                Status = STATUS_INVALID_DEVICE_REQUEST;
+                break;
             }
+        }
+        if (!NT_SUCCESS(Status)) {
+            break;
         }
 
         Status = WSKNPIProvider.Dispatch->WskSocket(
@@ -409,7 +413,7 @@ static NTSTATUS WSKAPI WSKSocketUnsafeDownlevel(
     return Status;
 }
 
-NTSTATUS WSKAPI WSKSocketUnsafe(
+static NTSTATUS WSKAPI WSKSocketUnsafe(
     _Out_ PWSK_SOCKET*      Socket,
     _In_  ADDRESS_FAMILY    AddressFamily,
     _In_  USHORT            SocketType,
@@ -499,11 +503,10 @@ static NTSTATUS WSKAPI WSKCloseSocketUnsafeDownlevel(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
 
     do
     {
-        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        const auto WSKContext = WSKAllocContextIRP(nullptr, nullptr);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -584,6 +587,13 @@ NTSTATUS WSKAPI WSKCloseSocketUnsafe(
     return Status;
 }
 
+NTSTATUS WSKAPI WSKBindUnsafe(
+    _In_ PWSK_SOCKET Socket,
+    _In_ ULONG       WskSocketType,
+    _In_ PSOCKADDR   LocalAddress,
+    _In_ SIZE_T      LocalAddressLength
+);
+
 static NTSTATUS WSKAPI WSKControlSocketUnsafeDownlevel(
     _In_ PWSK_SOCKET    Socket,
     _In_ ULONG          WskSocketType,
@@ -600,7 +610,7 @@ static NTSTATUS WSKAPI WSKControlSocketUnsafeDownlevel(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -648,13 +658,6 @@ static NTSTATUS WSKAPI WSKControlSocketUnsafeDownlevel(
                     break;
                 }
 
-                NTSTATUS WSKAPI WSKBindUnsafe(
-                    _In_ PWSK_SOCKET Socket,
-                    _In_ ULONG       WskSocketType,
-                    _In_ PSOCKADDR   LocalAddress,
-                    _In_ SIZE_T      LocalAddressLength
-                );
-
                 SOCKADDR_STORAGE LocalAddress{};
                 LocalAddress.ss_family = RemoteAddress->sa_family;
 
@@ -668,7 +671,7 @@ static NTSTATUS WSKAPI WSKControlSocketUnsafeDownlevel(
             }
         }
 
-        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped);
+        WSKContext = WSKAllocContextIRP((PVOID)CompletionRoutine, Overlapped);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -781,7 +784,7 @@ static NTSTATUS WSKAPI WSKBindUnsafeDownlevel(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -805,6 +808,8 @@ static NTSTATUS WSKAPI WSKBindUnsafeDownlevel(
             WSKBindRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskBind;
             break;
 #endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        default:
+            break;
         }
 
         if (WSKBindRoutine == nullptr)
@@ -899,7 +904,7 @@ NTSTATUS WSKAPI WSKAcceptUnsafe(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -950,6 +955,8 @@ NTSTATUS WSKAPI WSKAcceptUnsafe(
             WSKAcceptRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskAccept;
             break;
 #endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        default:
+            break;
         }
 
         if (WSKAcceptRoutine == nullptr)
@@ -1005,7 +1012,7 @@ static NTSTATUS WSKAPI WSKListenUnsafeDownlevel(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -1015,6 +1022,8 @@ static NTSTATUS WSKAPI WSKListenUnsafeDownlevel(
         {
         case WSK_FLAG_STREAM_SOCKET:
             WSKListenRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskListen;
+            break;
+        default:
             break;
         }
 
@@ -1105,7 +1114,7 @@ NTSTATUS WSKAPI WSKConnectUnsafe(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -1167,6 +1176,8 @@ NTSTATUS WSKAPI WSKConnectUnsafe(
             WSKConnectRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskConnect;
             break;
 #endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        default:
+            break;
         }
 
         if (WSKConnectRoutine == nullptr)
@@ -1215,7 +1226,7 @@ NTSTATUS WSKAPI WSKDisconnectUnsafe(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -1257,6 +1268,8 @@ NTSTATUS WSKAPI WSKDisconnectUnsafe(
             WSKDisconnectRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskDisconnect;
             break;
 #endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        default:
+            break;
         }
 
         if (WSKDisconnectRoutine == nullptr)
@@ -1310,7 +1323,7 @@ NTSTATUS WSKAPI WSKSendUnsafe(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -1357,6 +1370,8 @@ NTSTATUS WSKAPI WSKSendUnsafe(
             WSKSendRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskSend;
             break;
 #endif // if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        default:
+            break;
         }
 
         if (WSKSendRoutine == nullptr)
@@ -1365,7 +1380,7 @@ NTSTATUS WSKAPI WSKSendUnsafe(
             break;
         }
 
-        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped, true, Buffer, BufferLength);
+        WSKContext = WSKAllocContextIRP((PVOID)CompletionRoutine, Overlapped, true, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1427,7 +1442,7 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -1471,6 +1486,8 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
         case WSK_FLAG_DATAGRAM_SOCKET:
             WSKSendToRoutine = static_cast<const WSK_PROVIDER_DATAGRAM_DISPATCH*>(Socket->Dispatch)->WskSendTo;
             break;
+        default:
+            break;
         }
 
         if (WSKSendToRoutine == nullptr)
@@ -1484,7 +1501,7 @@ NTSTATUS WSKAPI WSKSendToUnsafe(
             Overlapped = &WSKEmptyOverlapped;
         }
 
-        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped, true, Buffer, BufferLength);
+        WSKContext = WSKAllocContextIRP((PVOID)CompletionRoutine, Overlapped, true, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1530,7 +1547,7 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -1577,6 +1594,8 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
             WSKReceiveRoutine = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskReceive;
             break;
 #endif // #if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        default:
+            break;
         }
 
         if (WSKReceiveRoutine == nullptr)
@@ -1585,7 +1604,7 @@ NTSTATUS WSKAPI WSKReceiveUnsafe(
             break;
         }
 
-        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped, true, nullptr, 0, Buffer, BufferLength);
+        WSKContext = WSKAllocContextIRP((PVOID)CompletionRoutine, Overlapped, true, nullptr, 0, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1647,7 +1666,7 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -1684,6 +1703,8 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
         case WSK_FLAG_DATAGRAM_SOCKET:
             WSKReceiveFromRoutine = static_cast<const WSK_PROVIDER_DATAGRAM_DISPATCH*>(Socket->Dispatch)->WskReceiveFrom;
             break;
+        default:
+            break;
         }
 
         if (WSKReceiveFromRoutine == nullptr)
@@ -1692,7 +1713,7 @@ NTSTATUS WSKAPI WSKReceiveFromUnsafe(
             break;
         }
 
-        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped, true, nullptr, 0, Buffer, BufferLength);
+        WSKContext = WSKAllocContextIRP((PVOID)CompletionRoutine, Overlapped, true, nullptr, 0, Buffer, BufferLength);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1757,12 +1778,12 @@ VOID WSKAPI WSKSetLastError(
     _In_ NTSTATUS Status
 )
 {
-    _lasterror = Status;
+    _LastNtStatus = Status;
 }
 
 NTSTATUS WSKAPI WSKGetLastError()
 {
-    return _lasterror;
+    return _LastNtStatus;
 }
 
 NTSTATUS WSKAPI WSKStartup(_In_ UINT16 Version, _Out_ WSKDATA* WSKData)
@@ -1912,7 +1933,7 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -1924,7 +1945,7 @@ NTSTATUS WSKAPI WSKGetAddrInfo(
             break;
         }
 
-        WSKContext = WSKAllocContextIRP(CompletionRoutine, Overlapped);
+        WSKContext = WSKAllocContextIRP((PVOID)CompletionRoutine, Overlapped);
         if (WSKContext == nullptr)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -2015,7 +2036,7 @@ NTSTATUS WSKAPI WSKGetNameInfo(
 )
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    WSK_CONTEXT_IRP* WSKContext{};
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
 
     do
     {
@@ -2221,6 +2242,8 @@ NTSTATUS WSKAPI WSKSocket(
             break;
         case SOCK_RAW:
             WSKSocketType = WSK_FLAG_DATAGRAM_SOCKET;
+            break;
+        default:
             break;
         }
 

@@ -1,20 +1,30 @@
-﻿root = true
+﻿## 
+## PROJECT:   Mouri Internal Library Essentials
+## FILE:      .editorconfig
+## PURPOSE:   The root .editorconfig file
+## 
+## LICENSE:   The MIT License
+## 
+## MAINTAINER: MouriNaruto (Kenji.Mouri@outlook.com)
+## 
+
+root = true
 
 [*]
-charset = utf-8
+charset = utf-8-bom
 end_of_line = crlf
 
 [*.md]
 insert_final_newline = true
 
-[*.{c,c++,cc,cpp,cxx,h,h++,hh,hpp,hxx,idl,inl,ipp,tlh,tli}]
+[*.{c,c++,cc,cpp,cxx,h,h++,hh,hpp,hxx,ixx,cppm,ipp,odl,idl,inl,ipp,tlh,tli}]
 indent_style = space
 indent_size = 4
 insert_final_newline = true
 trim_trailing_whitespace = true
 vc_generate_documentation_comments = doxygen_slash_star
 
-[*.{cs,csx,vb,vbx}]
+[*.{cs,csx,vb,vbx,asmx}]
 indent_style = space
 indent_size = 4
 insert_final_newline = true
@@ -29,10 +39,7 @@ trim_trailing_whitespace = true
 [*.rc]
 charset = utf-16le
 
-[Mile.Project.Properties.Template.h]
-charset = utf-16le
-
-[Mile.Project.Properties.h]
+[*.inf]
 charset = utf-16le
 
 [*.bat]
@@ -43,3 +50,13 @@ insert_final_newline = true
 charset = utf-8
 end_of_line = lf
 insert_final_newline = true
+
+[*.{asm,inc,s,nasm}]
+charset = utf-8
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{proj,props,targets}]
+charset = utf-8

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata minClientVersion="2.5">
+    <id>Musa.libwsk</id>
+    <version>$version$</version>
+    <title>Musa.libwsk</title>
+    <authors>MeeSong</authors>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <license type="expression">MIT</license>
+    <readme>build\native\README.md</readme>
+    <description>libwsk is a wrapper for the WSK (Winsock-Kernel) interface. With libwsk, kernel-mode software modules can perform network I/O operations using the same socket programming concepts and interface that are supported by user-mode Winsock2.
+    </description>
+    <releaseNotes>$releaseNotes$</releaseNotes>
+    <copyright>Copyright© MeeSong</copyright>
+    <tags>Musa.libwsk libwsk WDK KMDF Kernel Driver</tags>
+    <projectUrl>https://github.com/MiroKaku/libwsk</projectUrl>
+    <repository type="git" url="https://github.com/MiroKaku/libwsk.git" branch="main" commit="$commit$" />
+    <dependencies>
+      <dependency id="YY.NuGet.Import.Helper" version="1.0.1" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src=".\Musa.libwsk.props" target="build\native\" />
+    <file src=".\config\**" target="build\native\config\" />
+    <file src="..\Publish\**" target="build\native\" />
+    <file src="..\README.md" target="build\native\" />
+  </files>
+</package>

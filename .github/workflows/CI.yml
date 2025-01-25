@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  github_env:
+    name: GitHub Env Debug
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Dump github context
+        run: echo "$GITHUB_CONTEXT"
+        shell: bash
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+
+  build_win:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - name: Setup Version
+        if: contains(github.ref, 'tags/')
+        shell: pwsh
+        run: |
+          if($env:GITHUB_REF.StartsWith("refs/tags/v", "CurrentCultureIgnoreCase"))
+          {
+              $BuildVersion = $env:GITHUB_REF.Remove(0, 11);
+              echo "BuildVersion=$BuildVersion" >> $env:GITHUB_ENV
+
+              # github的内置版本有Bug, 此行必须添加否则无法获得内容
+              git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+
+              $releaseNotes = & git tag -l --format='%(contents)' $env:GITHUB_REF.Remove(0, 10)
+              $content = [System.IO.File]::ReadAllText("libwsk.NuGet\Musa.libwsk.nuspec")
+
+              $releaseNotesToken = '$releaseNotes$'
+              $releaseNotesIndex = $content.IndexOf($releaseNotesToken)
+
+              if($releaseNotesIndex -ne -1)
+              {
+                  echo $content.Substring(0, $releaseNotesIndex) | out-file "libwsk.NuGet\Musa.libwsk-New.nuspec" -NoNewline
+                  echo $releaseNotes | out-file "libwsk.NuGet\Musa.libwsk-New.nuspec" -Append
+                  echo $content.Remove(0, $releaseNotesIndex + $releaseNotesToken.Length) | out-file "libwsk.NuGet\Musa.libwsk-New.nuspec" -NoNewline -Append
+              }
+          }
+
+      - name: Build
+        shell: pwsh
+        run: |
+          ./Publish.bat
+          if %ERRORLEVEL% NEQ 0 exit /B %ERRORLEVEL%
+
+      - name: Build NuGet
+        if: contains(github.ref, 'tags/')
+        shell: cmd
+        run: |
+          if "${{env.BuildVersion}}" NEQ "" (
+              NuGet pack .\libwsk.NuGet\libwsk-New.nuspec -Properties version=${{env.BuildVersion}};commit=%GITHUB_SHA%
+          )
+          if %ERRORLEVEL% NEQ 0 exit /B %ERRORLEVEL%
+
+      - name: Build Zip
+        if: contains(github.ref, 'tags/')
+        working-directory: ${{github.workspace}}
+        shell: cmd
+        run: |
+          7z a -tzip -r "./Musa.libwsk-${{ env.BuildVersion }}.zip" "./Publish/*"
+
+      - name: Publish NuGet
+        if: contains(github.ref, 'tags/')
+        working-directory: ${{github.workspace}}
+        shell: cmd
+        run: |
+          NuGet push Musa.libwsk.${{env.BuildVersion}}.nupkg -ApiKey ${{ secrets.NUGET_TOKEN }} -Source https://api.nuget.org/v3/index.json
+          if %ERRORLEVEL% NEQ 0 exit /B %ERRORLEVEL%
+
+      - name: Publish Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libwsk
+          path: |
+            *.zip
+          if-no-files-found: error
+
+      - name: Publish Version
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.zip
+            *.nupkg

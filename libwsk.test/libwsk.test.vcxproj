@@ -2,25 +2,15 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup Label="Globals">
     <ProjectGuid>{3E5181D1-702F-40D0-A8EB-E373C0A380E6}</ProjectGuid>
-    <RootNamespace>libwsk.test</RootNamespace>
+    <ProjectName>libwsk.Test</ProjectName>
+    <RootNamespace>libwsk.Test</RootNamespace>
     <MileProjectType>WDMDriver</MileProjectType>
-    <MileProjectUseProjectProperties>true</MileProjectUseProjectProperties>
-    <MileProjectCompanyName>MeeSong (MiroKaku)</MileProjectCompanyName>
-    <MileProjectFileDescription>libwsk.test</MileProjectFileDescription>
-    <MileProjectInternalName>libwsk</MileProjectInternalName>
-    <MileProjectLegalCopyright>Copyright© MeeSong (MiroKaku). All rights reserved.</MileProjectLegalCopyright>
-    <MileProjectOriginalFilename>libwsk.sys</MileProjectOriginalFilename>
-    <MileProjectProductName>libwsk</MileProjectProductName>
-    <MileProjectVersion>1.0.0.0</MileProjectVersion>
-    <MileProjectVersionTag Condition="false">Alpha 1</MileProjectVersionTag>
   </PropertyGroup>
-  <Import Project="..\Mile.Project.Windows\Mile.Project.Platform.x86.props" />
-  <Import Project="..\Mile.Project.Windows\Mile.Project.Platform.x64.props" />
-  <Import Project="..\Mile.Project.Windows\Mile.Project.Platform.ARM64.props" />
-  <Import Project="..\Mile.Project.Windows\Mile.Project.Cpp.Default.props" />
-  <Import Project="..\Mile.Project.Windows\Mile.Project.Cpp.props" />
-  <PropertyGroup Label="Globals">
-    <!--TODO: -->
+  <Import Sdk="Mile.Project.Configurations" Project="Mile.Project.Platform.x64.props" />
+  <Import Sdk="Mile.Project.Configurations" Project="Mile.Project.Platform.ARM64.props" />
+  <Import Sdk="Mile.Project.Configurations" Project="Mile.Project.Cpp.Default.props" />
+  <Import Sdk="Mile.Project.Configurations" Project="Mile.Project.Cpp.props" />
+  <PropertyGroup>
     <OutDir>$(MileProjectBinariesPath)$(Configuration)\$(Platform)\</OutDir>
     <IntDir>$(MileProjectObjectsPath)$(Configuration)\$(MSBuildProjectName)\$(Platform)\</IntDir>
     <GeneratedFilesDir>$(IntDir)Generated Files\</GeneratedFilesDir>
@@ -37,12 +27,12 @@
     <Inf Include="libwsk.inf" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="unittest.c" />
+    <ClCompile Include="Program.c" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\libwsk\libwsk.vcxproj">
       <Project>{66495811-336e-4693-b2ea-3eecbc17545e}</Project>
     </ProjectReference>
   </ItemGroup>
-  <Import Project="..\Mile.Project.Windows\Mile.Project.Cpp.targets" />
+  <Import Sdk="Mile.Project.Configurations" Project="Mile.Project.Cpp.targets" />
 </Project>

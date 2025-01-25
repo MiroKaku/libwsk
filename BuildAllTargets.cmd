@@ -8,7 +8,7 @@ rem Remove the output folder for a fresh compile.
 rd /s /q Output
 
 rem Initialize Visual Studio environment
-call "%~dp0Mile.Project.Windows\InitializeVisualStudioEnvironment.cmd"
+call "%~dp0InitializeVisualStudioEnvironment.cmd"
 
 rem Build all targets
 MSBuild -binaryLogger:Output\BuildAllTargets.binlog -m BuildAllTargets.proj
