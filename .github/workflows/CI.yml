@@ -27,6 +27,9 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Version
         if: contains(github.ref, 'tags/')
         shell: pwsh
@@ -56,8 +59,7 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          ./Publish.bat
-          if %ERRORLEVEL% NEQ 0 exit /B %ERRORLEVEL%
+          & "${{github.workspace}}\Publish.bat"
 
       - name: Build NuGet
         if: contains(github.ref, 'tags/')
@@ -70,14 +72,12 @@ jobs:
 
       - name: Build Zip
         if: contains(github.ref, 'tags/')
-        working-directory: ${{github.workspace}}
         shell: cmd
         run: |
           7z a -tzip -r "./Musa.libwsk-${{ env.BuildVersion }}.zip" "./Publish/*"
 
       - name: Publish NuGet
         if: contains(github.ref, 'tags/')
-        working-directory: ${{github.workspace}}
         shell: cmd
         run: |
           NuGet push Musa.libwsk.${{env.BuildVersion}}.nupkg -ApiKey ${{ secrets.NUGET_TOKEN }} -Source https://api.nuget.org/v3/index.json
