@@ -4,9 +4,9 @@
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/MiroKaku/libwsk/blob/master/LICENSE)
 ![Windows](https://img.shields.io/badge/Windows-7+-orange.svg)
 ![Visual Studio](https://img.shields.io/badge/Visual%20Studio-2022-purple.svg)
-[![Downloads](https://img.shields.io/nuget/dt/libwsk?logo=NuGet&logoColor=blue)](https://www.nuget.org/packages/Musa.libwsk/)
+[![Downloads](https://img.shields.io/nuget/dt/Musa.libwsk?logo=NuGet&logoColor=blue)](https://www.nuget.org/packages/Musa.libwsk/)
 
-* [简体中文](README.zh-cn.md)
+* [简体中文](README.zh-CN.md)
 
 ## About
 
@@ -17,7 +17,7 @@ libwsk is a wrapper for the [WSK (Winsock-Kernel)](https://docs.microsoft.com/en
 ### Windows 10 or higher
 
 Right click on the project, select "Manage NuGet Packages".
-Search for `Musa.Veil`, choose the version that suits you, and then click "Install".
+Search for `Musa.libwsk`, choose the version that suits you, and then click "Install".
 
 ### Windows 7
 

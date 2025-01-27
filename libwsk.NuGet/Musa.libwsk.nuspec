@@ -23,6 +23,7 @@
     <file src=".\Musa.libwsk.props" target="build\native\" />
     <file src=".\config\**" target="build\native\config\" />
     <file src="..\Publish\**" target="build\native\" />
+    <file src="..\LICENSE" target="build\native\" />
     <file src="..\README.md" target="build\native\" />
   </files>
 </package>
