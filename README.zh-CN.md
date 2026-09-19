@@ -50,6 +50,7 @@ libwsk 属性页 -> Driver Settings -> Target Platform   = Desktop
 | ioctlsocket   | ~~WSAIoctl~~                 | WSKIoctl                     |   √    
 | setsockopt    | -                            | WSKSetSocketOpt              |   √    
 | getsockopt    | -                            | WSKGetSocketOpt              |   √    
+| getsockname   | ~~getsockname~~              | WSKGetLocalAddress           |   √    
 | getaddrinfo   | ~~GetAddrInfoEx~~            | WSKGetAddrInfo               |   √    
 | freeaddrinfo  | ~~FreeAddrInfoEx~~           | WSKFreeAddrInfo              |   √    
 | getnameinfo   | ~~GetNameInfo~~              | WSKGetNameInfo               |   √    

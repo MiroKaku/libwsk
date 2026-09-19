@@ -173,6 +173,26 @@ int WSKAPI getsockopt(
     return WSKSetLastError(Status), (!NT_SUCCESS(Status) ? SOCKET_ERROR : SOCKET_SUCCESS);
 }
 
+int WSKAPI getsockname(
+    _In_ SOCKET s,
+    _Out_writes_bytes_to_opt_(*addrlen, *addrlen) struct sockaddr* addr,
+    _Inout_opt_ int* addrlen
+)
+{
+    ULONG Length = (addrlen != nullptr) ? static_cast<ULONG>(*addrlen) : 0u;
+
+    NTSTATUS Status = WSKGetLocalAddress(s, (PSOCKADDR)addr, &Length);
+    if (NT_SUCCESS(Status))
+    {
+        if (addrlen)
+        {
+            *addrlen = static_cast<int>(Length);
+        }
+    }
+
+    return WSKSetLastError(Status), (!NT_SUCCESS(Status) ? SOCKET_ERROR : SOCKET_SUCCESS);
+}
+
 static NTSTATUS WSKAPI convert_addrinfo_to_addrinfoex(
     _In_ addrinfoexW** target,
     _In_opt_ const addrinfo* source

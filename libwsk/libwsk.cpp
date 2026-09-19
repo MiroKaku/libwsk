@@ -2387,14 +2387,16 @@ static NTSTATUS WSKAPI WSKGetLocalAddressUnsafe(
 #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
         if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
         {
-            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode != 2)
+            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode == 2)
             {
-                Status = STATUS_INVALID_DEVICE_REQUEST;
-                break;
+                Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
+                WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
             }
-
-            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
-            WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
+            else
+            {
+                Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Listen;
+                WskSocketType = WSK_FLAG_LISTEN_SOCKET;
+            }
         }
 #endif // #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
 
@@ -2453,6 +2455,22 @@ static NTSTATUS WSKAPI WSKGetLocalAddressUnsafe(
             if (Status == STATUS_SUCCESS)
             {
                 Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        if (NT_SUCCESS(Status))
+        {
+            switch (LocalAddress->sa_family)
+            {
+            case AF_INET:
+                *LocalAddressLength = sizeof(SOCKADDR_IN);
+                break;
+            case AF_INET6:
+                *LocalAddressLength = sizeof(SOCKADDR_IN6);
+                break;
+            default:
+                *LocalAddressLength = sizeof(SOCKADDR);
+                break;
             }
         }
 
