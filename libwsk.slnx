@@ -1,0 +1,12 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="libwsk.Test/libwsk.Test.vcxproj" Id="3e5181d1-702f-40d0-a8eb-e373c0a380e6">
+    <Deploy />
+  </Project>
+  <Project Path="libwsk/libwsk.vcxproj" Id="66495811-336e-4693-b2ea-3eecbc17545e">
+    <Deploy />
+  </Project>
+</Solution>

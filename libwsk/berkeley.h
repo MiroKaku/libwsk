@@ -117,6 +117,18 @@ int WSKAPI getsockopt(
     _Inout_ int* optlen
 );
 
+int WSKAPI getsockname(
+    _In_ SOCKET s,
+    _Out_writes_bytes_to_opt_(*addrlen, *addrlen) struct sockaddr* addr,
+    _Inout_opt_ int* addrlen
+);
+
+int WSKAPI getpeername(
+    _In_ SOCKET s,
+    _Out_writes_bytes_to_opt_(*addrlen, *addrlen) struct sockaddr* addr,
+    _Inout_opt_ int* addrlen
+);
+
 int WSKAPI getaddrinfo(
     _In_opt_ const char* nodename,
     _In_opt_ const char* servname,

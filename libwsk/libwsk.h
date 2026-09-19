@@ -139,6 +139,18 @@ NTSTATUS WSKAPI WSKIoctl(
     _In_opt_  LPWSKOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine
 );
 
+NTSTATUS WSKAPI WSKGetLocalAddress(
+    _In_    SOCKET      Socket,
+    _Out_writes_bytes_to_(*LocalAddressLength, *LocalAddressLength) PSOCKADDR LocalAddress,
+    _Inout_ PULONG      LocalAddressLength
+    );
+
+NTSTATUS WSKAPI WSKGetRemoteAddress(
+    _In_    SOCKET      Socket,
+    _Out_writes_bytes_to_(*RemoteAddressLength, *RemoteAddressLength) PSOCKADDR RemoteAddress,
+    _Inout_ PULONG      RemoteAddressLength
+    );
+
 NTSTATUS WSKAPI WSKSetSocketOpt(
     _In_ SOCKET         Socket,
     _In_ ULONG          OptionLevel,    // SOL_xxxx

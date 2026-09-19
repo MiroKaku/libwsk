@@ -2372,6 +2372,305 @@ NTSTATUS WSKAPI WSKIoctl(
     return Status;
 }
 
+static NTSTATUS WSKAPI WSKGetLocalAddressUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType,
+    _Out_writes_bytes_to_(*LocalAddressLength, *LocalAddressLength) PSOCKADDR LocalAddress,
+    _Inout_ PULONG      LocalAddressLength
+    )
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
+
+    do
+    {
+#if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+        {
+            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode == 2)
+            {
+                Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
+                WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
+            }
+            else
+            {
+                Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Listen;
+                WskSocketType = WSK_FLAG_LISTEN_SOCKET;
+            }
+        }
+#endif // #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
+        PFN_WSK_GET_LOCAL_ADDRESS WskGetLocalAddress = nullptr;
+
+        switch (WskSocketType)
+        {
+        case WSK_FLAG_LISTEN_SOCKET:
+            WskGetLocalAddress = static_cast<const WSK_PROVIDER_LISTEN_DISPATCH*>(Socket->Dispatch)->WskGetLocalAddress;
+            break;
+        case WSK_FLAG_DATAGRAM_SOCKET:
+            WskGetLocalAddress = static_cast<const WSK_PROVIDER_DATAGRAM_DISPATCH*>(Socket->Dispatch)->WskGetLocalAddress;
+            break;
+        case WSK_FLAG_CONNECTION_SOCKET:
+            WskGetLocalAddress = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskGetLocalAddress;
+            break;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        case WSK_FLAG_STREAM_SOCKET:
+            WskGetLocalAddress = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskGetLocalAddress;
+            break;
+#endif
+        default:
+            Status = STATUS_INVALID_DEVICE_REQUEST;
+            break;
+        }
+
+        if (!NT_SUCCESS(Status))
+            break;
+
+        if (WskGetLocalAddress == nullptr)
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        if (LocalAddressLength == nullptr || *LocalAddressLength < sizeof(SOCKADDR))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        Status = WskGetLocalAddress(Socket, LocalAddress, WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        if (NT_SUCCESS(Status))
+        {
+            switch (LocalAddress->sa_family)
+            {
+            case AF_INET:
+                *LocalAddressLength = sizeof(SOCKADDR_IN);
+                break;
+            case AF_INET6:
+                *LocalAddressLength = sizeof(SOCKADDR_IN6);
+                break;
+            default:
+                *LocalAddressLength = sizeof(SOCKADDR);
+                break;
+            }
+        }
+
+        WSKFreeContextIRP(WSKContext);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKGetLocalAddress(
+    _In_    SOCKET      Socket,
+    _Out_writes_bytes_to_(*LocalAddressLength, *LocalAddressLength) PSOCKADDR LocalAddress,
+    _Inout_ PULONG      LocalAddressLength
+    )
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == WSK_INVALID_SOCKET || LocalAddress == nullptr || LocalAddressLength == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        SOCKET_OBJECT SocketObject{};
+
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        Status = WSKGetLocalAddressUnsafe(SocketObject.Socket, SocketObject.SocketType,
+            LocalAddress, LocalAddressLength);
+
+    } while (false);
+
+    return Status;
+}
+
+static NTSTATUS WSKAPI WSKGetRemoteAddressUnsafe(
+    _In_ PWSK_SOCKET    Socket,
+    _In_ ULONG          WskSocketType,
+    _Out_writes_bytes_to_(*RemoteAddressLength, *RemoteAddressLength) PSOCKADDR RemoteAddress,
+    _Inout_ PULONG      RemoteAddressLength
+    )
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    WSK_CONTEXT_IRP* WSKContext = nullptr;
+
+    do
+    {
+#if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        if (WskSocketType == WSK_FLAG_STREAM_SOCKET)
+        {
+            // WSK_STREAM_SOCKET_WIN7 owns a peer address only after WSKConnect.
+            if (reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Mode != 2)
+            {
+                Status = STATUS_INVALID_DEVICE_STATE;
+                break;
+            }
+
+            Socket        = reinterpret_cast<const WSK_STREAM_SOCKET_WIN7*>(Socket)->Connect;
+            WskSocketType = WSK_FLAG_CONNECTION_SOCKET;
+        }
+#endif // #if !(NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
+        PFN_WSK_GET_REMOTE_ADDRESS WskGetRemoteAddress = nullptr;
+
+        switch (WskSocketType)
+        {
+        case WSK_FLAG_CONNECTION_SOCKET:
+            WskGetRemoteAddress = static_cast<const WSK_PROVIDER_CONNECTION_DISPATCH*>(Socket->Dispatch)->WskGetRemoteAddress;
+            break;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        case WSK_FLAG_STREAM_SOCKET:
+            WskGetRemoteAddress = static_cast<const WSK_PROVIDER_STREAM_DISPATCH*>(Socket->Dispatch)->WskGetRemoteAddress;
+            break;
+#endif // #if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+        default:
+            Status = STATUS_INVALID_DEVICE_REQUEST;
+            break;
+        }
+
+        if (!NT_SUCCESS(Status))
+            break;
+
+        if (WskGetRemoteAddress == nullptr)
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        if (RemoteAddressLength == nullptr || *RemoteAddressLength < sizeof(SOCKADDR))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        WSKContext = WSKAllocContextIRP(nullptr, nullptr);
+        if (WSKContext == nullptr)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        Status = WskGetRemoteAddress(Socket, RemoteAddress, WSKContext->Irp);
+
+        if (Status == STATUS_PENDING)
+        {
+            LARGE_INTEGER Timeout{};
+            Status = KeWaitForSingleObject(&WSKContext->Event, Executive, KernelMode,
+                FALSE, WSKTimeoutToLargeInteger(WSK_INFINITE_WAIT, &Timeout));
+            if (Status == STATUS_SUCCESS)
+            {
+                Status = WSKContext->Irp->IoStatus.Status;
+            }
+        }
+
+        if (NT_SUCCESS(Status))
+        {
+            switch (RemoteAddress->sa_family)
+            {
+            case AF_INET:
+                *RemoteAddressLength = sizeof(SOCKADDR_IN);
+                break;
+            case AF_INET6:
+                *RemoteAddressLength = sizeof(SOCKADDR_IN6);
+                break;
+            default:
+                *RemoteAddressLength = sizeof(SOCKADDR);
+                break;
+            }
+        }
+
+        WSKFreeContextIRP(WSKContext);
+
+    } while (false);
+
+    return Status;
+}
+
+NTSTATUS WSKAPI WSKGetRemoteAddress(
+    _In_    SOCKET      Socket,
+    _Out_writes_bytes_to_(*RemoteAddressLength, *RemoteAddressLength) PSOCKADDR RemoteAddress,
+    _Inout_ PULONG      RemoteAddressLength
+    )
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    do
+    {
+        if (!InterlockedCompareExchange(&_Initialized, true, true))
+        {
+            Status = STATUS_NDIS_ADAPTER_NOT_READY;
+            break;
+        }
+
+        if (Socket == WSK_INVALID_SOCKET || RemoteAddress == nullptr || RemoteAddressLength == nullptr)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        SOCKET_OBJECT SocketObject{};
+
+        if (!WSKSocketsAVLTableFind(Socket, &SocketObject))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if (SocketObject.SocketType == static_cast<USHORT>(WSK_FLAG_INVALID_SOCKET))
+        {
+            Status = STATUS_NOT_SUPPORTED;
+            break;
+        }
+
+        Status = WSKGetRemoteAddressUnsafe(SocketObject.Socket, SocketObject.SocketType,
+            RemoteAddress, RemoteAddressLength);
+
+    } while (false);
+
+    return Status;
+}
+
 NTSTATUS WSKAPI WSKSetSocketOpt(
     _In_ SOCKET         Socket,
     _In_ ULONG          OptionLevel,
