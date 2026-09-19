@@ -51,6 +51,7 @@ libwsk Property pages -> Driver Settings -> Target Platform   = Desktop
 | setsockopt    | -                            | WSKSetSocketOpt              |   √    
 | getsockopt    | -                            | WSKGetSocketOpt              |   √    
 | getsockname   | ~~getsockname~~              | WSKGetLocalAddress           |   √    
+| getpeername   | ~~getpeername~~              | WSKGetRemoteAddress          |   √    
 | getaddrinfo   | ~~GetAddrInfoEx~~            | WSKGetAddrInfo               |   √    
 | freeaddrinfo  | ~~FreeAddrInfoEx~~           | WSKFreeAddrInfo              |   √    
 | getnameinfo   | ~~GetNameInfo~~              | WSKGetNameInfo               |   √    
